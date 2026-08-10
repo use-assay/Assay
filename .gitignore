@@ -1,0 +1,14 @@
+# Built binaries (anchored to repo root, by name)
+/assay
+/assayd
+
+# Build and coverage output
+/dist/
+coverage.out
+coverage.html
+
+# Rust
+/assay-contracts/target/
+
+# Logs
+*.log
