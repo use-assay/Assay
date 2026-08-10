@@ -1,0 +1,132 @@
+// Package stellarexpert consumes StellarExpert's curated reputation data.
+//
+// Assay does not build a reputation layer and does not second-guess this one.
+// Everything this package returns is passed through to the report as attributed
+// evidence, carrying the source URL and retrieval time. Nothing here is
+// re-derived, re-scored, or restated as an Assay conclusion.
+//
+// Endpoints verified live against api.stellar.expert:
+//
+//	GET /explorer/directory/{address}                 -> curated address entry
+//	GET /explorer/directory/blocked-domains/{domain}  -> {"domain":..,"blocked":bool}
+//
+// This is an extraction candidate for a shared ledger-access library.
+package stellarexpert
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/url"
+	"time"
+)
+
+// DefaultURL is the public StellarExpert API root.
+const DefaultURL = "https://api.stellar.expert"
+
+// DirectoryEntry is a curated entry from StellarExpert's address directory,
+// the data set standardized by SEP-0037.
+type DirectoryEntry struct {
+	Address string   `json:"address"`
+	Name    string   `json:"name"`
+	Domain  string   `json:"domain"`
+	Tags    []string `json:"tags"`
+}
+
+// HasTag reports whether the entry carries the given tag.
+func (e *DirectoryEntry) HasTag(tag string) bool {
+	if e == nil {
+		return false
+	}
+	for _, t := range e.Tags {
+		if t == tag {
+			return true
+		}
+	}
+	return false
+}
+
+// BlockedDomain is the response from the blocked-domains lookup.
+type BlockedDomain struct {
+	Domain  string `json:"domain"`
+	Blocked bool   `json:"blocked"`
+}
+
+// Client reads StellarExpert's curated data sets.
+type Client struct {
+	BaseURL string
+	HTTP    *http.Client
+}
+
+// New returns a Client for the given API root, defaulting to the public one.
+func New(baseURL string) *Client {
+	if baseURL == "" {
+		baseURL = DefaultURL
+	}
+	return &Client{
+		BaseURL: baseURL,
+		HTTP:    &http.Client{Timeout: 15 * time.Second},
+	}
+}
+
+// DirectoryURL returns the public URL for an address's directory entry, used
+// to attribute the claim in the report.
+func (c *Client) DirectoryURL(address string) string {
+	return c.BaseURL + "/explorer/directory/" + url.PathEscape(address)
+}
+
+// BlockedDomainURL returns the public URL for a blocked-domain lookup.
+func (c *Client) BlockedDomainURL(domain string) string {
+	return c.BaseURL + "/explorer/directory/blocked-domains/" + url.PathEscape(domain)
+}
+
+// Directory looks up an address in the curated directory. A nil entry with a
+// nil error means the address is simply not listed, which is the common case
+// and is not itself a signal in either direction.
+func (c *Client) Directory(ctx context.Context, address string) (*DirectoryEntry, error) {
+	var e DirectoryEntry
+	found, err := c.get(ctx, c.DirectoryURL(address), &e)
+	if err != nil || !found {
+		return nil, err
+	}
+	return &e, nil
+}
+
+// BlockedDomain reports whether a domain appears on the malicious-domain
+// blocklist.
+func (c *Client) BlockedDomain(ctx context.Context, domain string) (*BlockedDomain, error) {
+	var b BlockedDomain
+	found, err := c.get(ctx, c.BlockedDomainURL(domain), &b)
+	if err != nil || !found {
+		return nil, err
+	}
+	return &b, nil
+}
+
+// get returns found=false on 404 rather than an error, because "not listed" is
+// a normal answer from these endpoints.
+func (c *Client) get(ctx context.Context, target string, out any) (bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return false, err
+	}
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("stellarexpert: get %s: %w", target, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return false, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("stellarexpert: get %s: status %d", target, resp.StatusCode)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return false, fmt.Errorf("stellarexpert: decode %s: %w", target, err)
+	}
+	return true, nil
+}

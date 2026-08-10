@@ -1,0 +1,140 @@
+package mechanics
+
+// Severity is Assay's risk level for an asset.
+//
+// Severity is CAPABILITY-ONLY. It answers exactly one question: what is the
+// issuer able to do to a holder's balance? It is derived from the issuer's
+// authorization flags, which are consensus-enforced facts, and from nothing
+// else.
+//
+// Reputation, attribution, age, popularity, and trustline count do not lower
+// severity. Ever. Two assets with identical issuer capability return identical
+// severity even if one is issued by a household-name regulated institution and
+// the other by an anonymous account created an hour ago. This is not an
+// oversight — it is the property that makes the on-chain gate sound. A gate
+// that reads `severity <= Medium` must be relying on a statement about
+// mechanics, not on a statement about anyone's opinion of the issuer.
+//
+// Reputation is monotonic upward only: confirmed-bad reputation escalates to
+// Critical, because evidence of abuse is decisive. Absence of bad reputation is
+// never evidence of good, so it moves nothing.
+//
+// Whether anyone stands behind the capability is reported separately, as
+// Accountability. See docs/severity-model.md.
+type Severity uint32
+
+// Severity levels are pinned to a specific issuer capability so that the
+// numeric value is self-documenting on-chain. These values are part of the
+// contract ABI: do not renumber them.
+const (
+	// Clear means the issuer holds no authorization flags and has no special
+	// power over holders of this asset.
+	Clear Severity = 0
+
+	// Low means auth_required: the issuer gates who may open a trustline. It
+	// controls entry, but cannot act against a holder who is already in.
+	Low Severity = 1
+
+	// Medium means auth_revocable: the issuer can freeze an existing holder's
+	// balance, making it unusable while leaving it in place.
+	Medium Severity = 2
+
+	// High means auth_clawback_enabled: the issuer can confiscate an existing
+	// holder's balance outright and burn it, without that holder's signature.
+	High Severity = 3
+
+	// Critical is reserved for reputation escalation. It is never produced by
+	// reading flags; it means a curated source has affirmatively identified
+	// this issuer or its domain as malicious.
+	Critical Severity = 4
+)
+
+// String returns the lowercase level name used in the API and UI.
+func (s Severity) String() string {
+	switch s {
+	case Clear:
+		return "clear"
+	case Low:
+		return "low"
+	case Medium:
+		return "medium"
+	case High:
+		return "high"
+	case Critical:
+		return "critical"
+	default:
+		return "unknown"
+	}
+}
+
+// MarshalJSON renders severity as its level name.
+func (s Severity) MarshalJSON() ([]byte, error) {
+	return []byte(`"` + s.String() + `"`), nil
+}
+
+// Mechanic is a bit in the mechanics bitset. The bit positions are part of the
+// contract ABI: do not renumber them.
+type Mechanic uint32
+
+const (
+	// MechAuthRequired is the issuer's auth_required flag.
+	MechAuthRequired Mechanic = 1 << 0
+	// MechAuthRevocable is the issuer's auth_revocable flag.
+	MechAuthRevocable Mechanic = 1 << 1
+	// MechClawbackEnabled is the issuer's auth_clawback_enabled flag.
+	MechClawbackEnabled Mechanic = 1 << 2
+	// MechFlagsLocked is the issuer's auth_immutable flag. It is not a power
+	// over holders; it means the flag set above can never change again.
+	MechFlagsLocked Mechanic = 1 << 3
+	// MechDomainUnverified means reciprocal SEP-1 domain verification failed.
+	MechDomainUnverified Mechanic = 1 << 4
+	// MechBlocklisted means a curated source flagged the issuer or its domain.
+	MechBlocklisted Mechanic = 1 << 5
+)
+
+// ConfiscationMask covers the mechanics that let an issuer take a balance.
+// Any asset matching this mask has severity >= High by construction.
+const ConfiscationMask = MechClawbackEnabled
+
+// names is ordered by bit position for stable output.
+var names = []struct {
+	bit  Mechanic
+	name string
+}{
+	{MechAuthRequired, "auth_required"},
+	{MechAuthRevocable, "auth_revocable"},
+	{MechClawbackEnabled, "auth_clawback_enabled"},
+	{MechFlagsLocked, "auth_immutable"},
+	{MechDomainUnverified, "domain_unverified"},
+	{MechBlocklisted, "blocklisted"},
+}
+
+// Names returns the set bits as their ledger flag names, in bit order.
+func (m Mechanic) Names() []string {
+	out := []string{}
+	for _, n := range names {
+		if m&n.bit != 0 {
+			out = append(out, n.name)
+		}
+	}
+	return out
+}
+
+// Accountability reports whether an identifiable party stands behind the
+// issuer's capability. It is reported alongside severity and never folded into
+// it: a verified domain does not make confiscation power safer, it only makes
+// the party holding that power identifiable.
+type Accountability string
+
+const (
+	// AccountabilityUnknown means the issuer advertises no home_domain, so
+	// there is no claim to verify.
+	AccountabilityUnknown Accountability = "unknown"
+	// AccountabilityUnverified means a home_domain is advertised but reciprocal
+	// verification failed: the stellar.toml did not resolve, or it resolved and
+	// did not claim this asset.
+	AccountabilityUnverified Accountability = "unverified"
+	// AccountabilityVerified means the issuer's advertised domain published a
+	// stellar.toml that names this exact code and issuer.
+	AccountabilityVerified Accountability = "verified"
+)
