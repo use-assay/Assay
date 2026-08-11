@@ -1,0 +1,15 @@
+ACCOUNTS=["GDSTRSHXHGJ7ZIVRBXEYE5Q74XUVCUSEKEBR7UCHEUUEK72N7I7KJ6JH"]
+
+[DOCUMENTATION]
+ORG_NAME="Stronghold"
+ORG_URL="https://stronghold.co/shx"
+ORG_LOGO="https://stronghold.co/.well-known/logo.png"
+ORG_TWITTER="strongholdpay"
+
+[[CURRENCIES]]
+code="SHX"
+issuer="GDSTRSHXHGJ7ZIVRBXEYE5Q74XUVCUSEKEBR7UCHEUUEK72N7I7KJ6JH"
+display_decimals=0
+name="Stronghold SHx"
+desc="Stronghold's expanding payments ecosystem uses the SHx token as a building block with a real-world purpose."
+image="https://stronghold.co/.well-known/logo.png"

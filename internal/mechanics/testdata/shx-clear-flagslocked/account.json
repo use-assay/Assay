@@ -1,0 +1,10 @@
+{
+  "account_id": "GDSTRSHXHGJ7ZIVRBXEYE5Q74XUVCUSEKEBR7UCHEUUEK72N7I7KJ6JH",
+  "home_domain": "stronghold.co",
+  "flags": {
+    "auth_required": false,
+    "auth_revocable": false,
+    "auth_immutable": true,
+    "auth_clawback_enabled": false
+  }
+}
