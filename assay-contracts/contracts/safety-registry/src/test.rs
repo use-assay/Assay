@@ -102,7 +102,12 @@ fn attest_rejects_clawback_below_high() {
     let asset = Address::generate(&env);
 
     let err = client
-        .try_attest(&asset, &SEVERITY_MEDIUM, &MECH_CLAWBACK_ENABLED, &hash(&env))
+        .try_attest(
+            &asset,
+            &SEVERITY_MEDIUM,
+            &MECH_CLAWBACK_ENABLED,
+            &hash(&env),
+        )
         .expect_err("clawback below high must be rejected");
 
     assert_eq!(err, Ok(Error::InconsistentAttestation));

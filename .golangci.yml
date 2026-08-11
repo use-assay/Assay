@@ -1,0 +1,26 @@
+version: "2"
+
+linters:
+  enable:
+    - bodyclose
+    - errorlint
+    - misspell
+    - revive
+    - unconvert
+  settings:
+    revive:
+      rules:
+        - name: exported
+          # Assay's reasoning lives in comments; exported identifiers that
+          # carry judgment rules must explain themselves.
+          disabled: false
+  exclusions:
+    rules:
+      # Fixtures are captured verbatim from live sources and are not edited.
+      - path: testdata/
+        linters:
+          - misspell
+
+formatters:
+  enable:
+    - gofmt

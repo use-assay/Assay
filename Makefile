@@ -1,7 +1,10 @@
 BINARY := assay
 PKG := ./...
 
-.PHONY: all build test cover lint fmt vet run clean
+CONTRACTS := assay-contracts
+
+.PHONY: all build test cover lint fmt vet run clean \
+	contract-test contract-lint contract-build
 
 all: build
 
@@ -27,5 +30,16 @@ lint:
 run: build
 	./$(BINARY) serve
 
+contract-test:
+	cd $(CONTRACTS) && cargo test
+
+contract-lint:
+	cd $(CONTRACTS) && cargo fmt --all -- --check
+	cd $(CONTRACTS) && cargo clippy --all-targets -- -D warnings
+
+contract-build:
+	cd $(CONTRACTS) && cargo build --release --target wasm32-unknown-unknown
+
 clean:
 	rm -f $(BINARY) coverage.out coverage.html
+	cd $(CONTRACTS) && cargo clean

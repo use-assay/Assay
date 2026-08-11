@@ -115,7 +115,7 @@ func (c *Client) get(ctx context.Context, path string, out any) error {
 	if err != nil {
 		return fmt.Errorf("horizon: get %s: %w", path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return fmt.Errorf("%w: %s", ErrNotFound, path)

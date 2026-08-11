@@ -139,7 +139,9 @@ impl SafetyRegistry {
             evidence_hash,
             attested_at: env.ledger().timestamp(),
         };
-        env.storage().persistent().set(&DataKey::Safety(asset), &safety);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Safety(asset), &safety);
         Ok(())
     }
 

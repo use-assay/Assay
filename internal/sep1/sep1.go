@@ -96,7 +96,7 @@ func (f *Fetcher) Fetch(ctx context.Context, domain string) (*Doc, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sep1: fetch %s: %w", target, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("sep1: fetch %s: status %d", target, resp.StatusCode)

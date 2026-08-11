@@ -117,7 +117,7 @@ func (c *Client) get(ctx context.Context, target string, out any) (bool, error) 
 	if err != nil {
 		return false, fmt.Errorf("stellarexpert: get %s: %w", target, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return false, nil
