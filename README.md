@@ -48,6 +48,7 @@ carries an explicit, evaluated position on legitimate clawback use. See
 | [docs/checks.md](docs/checks.md) | Each mechanic Assay checks, and what it can and cannot conclude |
 | [docs/contract-interface.md](docs/contract-interface.md) | `get_safety(asset)` design |
 | [docs/eval.md](docs/eval.md) | Labelled trap/legitimate set and current results |
+| [docs/adding-a-check.md](docs/adding-a-check.md) | How to write a new mechanic check |
 
 ## Status
 

@@ -22,6 +22,8 @@ anything we would write.
 
 ## Adding a check
 
+Full guide: [docs/adding-a-check.md](docs/adding-a-check.md).
+
 A check is not done when it detects something. It is done when its
 *judgment* has been measured.
 
