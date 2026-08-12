@@ -61,6 +61,14 @@ Verification failures are reported verbatim, including the HTTP status. "We
 could not check" and "this is fine" are different answers and must never render
 the same.
 
+The same rule applies to negatives. SEP-0001 permits a currency entry whose only
+field is `toml="https://DOMAIN/.well-known/CURRENCY.toml"`, delegating the
+declaration to a separate file. Such an entry carries no code or issuer, so it
+can never match. Assay does not follow those links yet, so when a toml contains
+them it reports the asset as **unconfirmed** rather than claiming the domain
+failed to name it — overstating a negative is the same class of error as
+overstating a positive. Following those links is not implemented yet.
+
 **Cannot conclude:** that a verified issuer is honest. It establishes that a
 named party has published a claim, nothing more. A scammer can register a domain
 and publish a valid toml in ten minutes; that is precisely why this sets

@@ -68,6 +68,33 @@ func (c DomainCheck) Run(_ context.Context, s *Subject) (Finding, error) {
 	if !s.Toml.Claims(s.Asset.Code, s.Asset.Issuer) {
 		acc = AccountabilityUnverified
 		f.Mechanics = MechDomainUnverified
+
+		// SEP-0001 lets a currency entry delegate to its own TOML file, in
+		// which case the entry carries no code or issuer to match. Assay does
+		// not follow those links yet, so it must not claim the domain failed to
+		// name this asset when it may have done so in a document Assay never
+		// read. Overstating a negative is the same class of error as
+		// overstating a positive.
+		if linked := s.Toml.LinkedCurrencies(); linked > 0 {
+			f.Reasoning = fmt.Sprintf(
+				"The issuer advertises home_domain %q and that domain publishes a "+
+					"stellar.toml, but this asset (%s) is not declared inline in its "+
+					"CURRENCIES. The toml delegates %d currency entries to separate "+
+					"per-currency TOML files, which Assay does not follow yet, so this "+
+					"asset may be claimed in one of them. Treated as unverified "+
+					"because it is unconfirmed, not because it was refuted.",
+				domain, s.Asset, linked)
+			f.Evidence = append(f.Evidence, Evidence{
+				Source: "stellar.toml",
+				URL:    s.Toml.URL,
+				Claim: fmt.Sprintf(
+					"CURRENCIES lists %d entries, none matching %s inline; %d are links not followed",
+					len(s.Toml.Currencies), s.Asset, linked),
+				RetrievedAt: s.Toml.FetchedAt,
+			})
+			return f, nil
+		}
+
 		f.Reasoning = fmt.Sprintf(
 			"The issuer advertises home_domain %q and that domain publishes a "+
 				"stellar.toml, but the toml does not list this asset (%s) in its "+

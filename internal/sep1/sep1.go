@@ -66,6 +66,28 @@ func (d *Doc) Claims(code, issuer string) bool {
 	return false
 }
 
+// LinkedCurrencies counts entries that delegate to a separate per-currency
+// TOML file instead of declaring inline.
+//
+// SEP-0001 allows a currency entry to carry
+// `toml="https://DOMAIN/.well-known/CURRENCY.toml"` as its ONLY field, so such
+// an entry has no code or issuer to match against. Assay does not follow those
+// links yet, which means a non-zero count here is the difference between "this
+// domain did not claim the asset" and "this domain may have claimed it in a
+// document we did not read". Those must never be reported the same way.
+func (d *Doc) LinkedCurrencies() int {
+	if d == nil {
+		return 0
+	}
+	n := 0
+	for _, c := range d.Currencies {
+		if c.Toml != "" && c.Code == "" && c.Issuer == "" {
+			n++
+		}
+	}
+	return n
+}
+
 // Fetcher retrieves stellar.toml documents.
 type Fetcher struct {
 	HTTP *http.Client

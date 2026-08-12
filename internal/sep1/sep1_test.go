@@ -44,6 +44,42 @@ issuer = "GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2"
 	}
 }
 
+// SEP-0001 permits a currency entry whose only field is a link to a separate
+// per-currency TOML. Those entries carry no code or issuer, so they can never
+// match, and counting them is what lets the domain check say "unconfirmed"
+// instead of wrongly saying "refuted".
+func TestLinkedCurrencies(t *testing.T) {
+	doc, err := sep1.Parse([]byte(`
+[[CURRENCIES]]
+toml = "https://example.com/.well-known/USDC.toml"
+
+[[CURRENCIES]]
+toml = "https://example.com/.well-known/EURC.toml"
+
+[[CURRENCIES]]
+code = "AQUA"
+issuer = "` + issuer + `"
+`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	if got := doc.LinkedCurrencies(); got != 2 {
+		t.Errorf("LinkedCurrencies() = %d, want 2", got)
+	}
+	if doc.Claims("USDC", issuer) {
+		t.Error("a linked entry must not be treated as an inline claim")
+	}
+	if !doc.Claims("AQUA", issuer) {
+		t.Error("inline entries must still match alongside linked ones")
+	}
+
+	var nilDoc *sep1.Doc
+	if got := nilDoc.LinkedCurrencies(); got != 0 {
+		t.Errorf("nil doc LinkedCurrencies() = %d, want 0", got)
+	}
+}
+
 func TestURLFor(t *testing.T) {
 	want := "https://circle.com/.well-known/stellar.toml"
 	for _, in := range []string{"circle.com", "circle.com/"} {
