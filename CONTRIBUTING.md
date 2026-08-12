@@ -1,5 +1,10 @@
 # Contributing to Assay
 
+By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md). If you
+have found a way to make Assay under-report risk, that is a security issue —
+see [SECURITY.md](SECURITY.md) and report it privately rather than opening an
+issue.
+
 ## Ground rules
 
 Assay makes claims about whether someone's money can be taken. Two rules
