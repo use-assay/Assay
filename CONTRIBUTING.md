@@ -48,6 +48,22 @@ make cover    # coverage report
 make run      # start the API on :8080
 ```
 
+The Soroban side, which needs the [stellar CLI](https://developers.stellar.org/docs/build/smart-contracts/getting-started/setup):
+
+```sh
+make contract-test    # cargo test
+make contract-lint    # cargo fmt --check + clippy -D warnings
+make build-contract   # optimized wasm into assay-contracts/out/
+make deploy-testnet   # upload + deploy, prints the new contract ID
+
+make attest ASSET=CODE-ISSUER   # scan live and write the result on-chain
+make read   ASSET=CODE-ISSUER   # read it back with get_safety
+```
+
+`make attest` derives every value from a live scan via `assay attestation`.
+Never hand-write a severity, a bitset, or an evidence hash into a transaction —
+see [docs/deployment.md](docs/deployment.md).
+
 Run `make fmt` before committing; CI enforces `gofmt -l` being empty.
 
 Tests must not require network access. Fetchers are interfaces; tests use

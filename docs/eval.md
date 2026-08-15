@@ -112,6 +112,13 @@ Stated plainly, because an eval that hides its gaps is marketing.
   issuer and none is independently confirmed legitimate. Until one is in the set,
   the claim "the model treats legitimate clawback fairly" rests on the model's
   structure rather than on measurement. This is the most important gap.
+
+  A candidate now exists: `USDZ-GAKTLPC4ZV37SSCITQ5IS5AQ4WPF4CF4VZJQPPAROSGXMYOATF5U6XPR`
+  is clawback-capable, unblocklisted, and passes reciprocal SEP-1 verification —
+  one of five such assets in StellarExpert's top 50 by rating. It is attested on
+  testnet (see [deployment.md](deployment.md)) but is **not** in this set yet, so
+  the gap is narrower than it was and not yet closed. Capturing it as a fixture
+  is the next step.
 - **No frozen-trustline case.** Nothing exercises assets with unauthorized
   trustlines, where a freeze has actually been used rather than merely enabled.
 - **Fixtures are a snapshot.** Issuers can change flags. Fixtures pin the

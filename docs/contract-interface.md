@@ -4,6 +4,9 @@ The on-chain half of Assay: a Soroban contract another contract can call
 atomically, in the same transaction as the action it protects.
 
 Source: [`assay-contracts/contracts/safety-registry`](../assay-contracts/contracts/safety-registry).
+Deployed to testnet at `CBK4FBIHMDTXCUPE4E3ZDVSFJSCY5FJETTKNIQPN4LFJIKKIBLKIXQ73`
+— see [deployment.md](deployment.md) for addresses and transaction hashes, and
+[integrating.md](integrating.md) for how to call it.
 
 ## What it is, honestly
 
@@ -20,8 +23,10 @@ is what makes that trust checkable: a SHA-256 over the canonical evidence bundle
 the scanner fetched, so anyone can verify an attestation corresponds to specific
 evidence rather than to a number someone typed.
 
-The attestation-writer pipeline that drives this from live scans **does not
-exist yet**. This session shipped the on-chain half and its invariants.
+Attestations are written by `assay attestation`, which derives severity, the
+mechanic bitset, and the evidence hash from a live scan, and `make attest`,
+which submits them. No path through either lets a hand-written severity reach
+the contract.
 
 ## ABI
 
@@ -109,12 +114,54 @@ Gating on `severity` is sound precisely because severity is capability-only:
 the contract is relying on a statement about ledger mechanics, not on a third
 party's opinion of an issuer. See [the severity model](severity-model.md).
 
+Gating on the `flags` bitset instead is usually sharper, because a contract
+tends to care about a specific power rather than about an ordering.
+[integrating.md](integrating.md) works through both, against the live
+deployment.
+
+### `evidence_hash` commits to the claims, not to the clock
+
+`evidence_hash` is `SHA-256` over a canonical rendering of the report, produced
+by [`internal/attest`](../internal/attest) and printable with
+`assay attestation -preimage CODE-ISSUER`. The encoding is line-oriented,
+tab-separated, LF-terminated UTF-8:
+
+```
+assay-evidence-v1
+asset	CODE-ISSUER
+severity	N
+base_severity	N
+escalated	true|false
+mechanics	N
+accountability	unknown|unverified|verified
+evidence	SOURCE	URL	CLAIM
+```
+
+with one `evidence` line per attributed claim, sorted bytewise. Inside any
+field, `\` becomes `\\`, tab becomes `\t`, newline `\n`, carriage return `\r`.
+That escaping is load-bearing rather than tidy: a claim embeds third-party text
+such as a directory name, so without it an issuer could publish a name
+containing a tab and forge the preimage of a report that was never produced.
+
+**Retrieval timestamps are deliberately excluded.** Hashing them would give the
+same unchanged evidence a different hash on every scan, which would make the
+field unverifiable by anyone who was not present for the original fetch.
+Excluding them means a verifier can re-scan and reproduce the hash exactly. The
+cost is that the hash cannot distinguish a fresh confirmation from a stale one
+— which is precisely why `attested_at` is stored separately and `is_safe` takes
+`max_age_secs` against it.
+
+The version line is inside the hash, so a future encoding change cannot produce
+bytes a verifier would silently compare against v1.
+
 ## Not done yet
 
-- **The attestation writer.** No pipeline turns live scans into `attest` calls.
-- **Not deployed.** No testnet or pubnet address exists.
 - **Single admin.** One key can write any attestation. A production deployment
   wants multisig or a threshold of independent attesters.
-- **`evidence_hash` has no canonical encoding.** The field exists and is stored;
-  the exact bytes hashed are not yet specified, so it cannot be verified
-  independently today.
+- **No re-attestation schedule.** Nothing refreshes an attestation when an
+  issuer's flags change. Freshness is entirely the caller's problem, via
+  `attested_at` and `max_age_secs`.
+- **No TTL extension.** Soroban persistent entries expire if their TTL is not
+  bumped, and nothing bumps these.
+- **Testnet only.** No pubnet deployment exists, and the points above are why
+  one would be premature.

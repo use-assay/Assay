@@ -7,6 +7,20 @@ tokens after I hold them?** It answers it from the ledger's own rules — the
 issuer's authorization flags — not from reputation, community reports, or a
 domain blocklist.
 
+## Live on testnet
+
+```
+Safety registry   CBK4FBIHMDTXCUPE4E3ZDVSFJSCY5FJETTKNIQPN4LFJIKKIBLKIXQ73
+Network           Testnet (Test SDF Network ; September 2015)
+```
+
+`get_safety(asset)` is callable now, by any Soroban contract, atomically.
+[docs/integrating.md](docs/integrating.md) has a copy-pasteable gate and a
+worked example contract that is also deployed
+(`CANO57JRGTATHGLM26TWYPIXERSPVI5R52H33K7ZUJGGOEOVVZA44W3U`);
+[docs/deployment.md](docs/deployment.md) has the transaction hashes, the
+attested assets, and the live fail-closed checks.
+
 ## Why this exists
 
 Stellar already has a reputation layer, and Assay does not rebuild it.
@@ -46,14 +60,35 @@ carries an explicit, evaluated position on legitimate clawback use. See
 | --- | --- |
 | [docs/severity-model.md](docs/severity-model.md) | The judgment layer: severity levels, the legitimate-use carve-out, and why |
 | [docs/checks.md](docs/checks.md) | Each mechanic Assay checks, and what it can and cannot conclude |
-| [docs/contract-interface.md](docs/contract-interface.md) | `get_safety(asset)` design |
+| [docs/contract-interface.md](docs/contract-interface.md) | `get_safety(asset)` design and the `evidence_hash` encoding |
+| [docs/integrating.md](docs/integrating.md) | How your contract calls `get_safety` and gates on the bitset |
+| [docs/deployment.md](docs/deployment.md) | Deployed addresses, attested assets, transaction hashes |
 | [docs/eval.md](docs/eval.md) | Labelled trap/legitimate set and current results |
 | [docs/adding-a-check.md](docs/adding-a-check.md) | How to write a new mechanic check |
 
 ## Status
 
-Early. The mechanics engine and HTTP API are usable; the Soroban contract is
-an interface stub, not a deployed gate.
+The mechanics engine, the HTTP API, and the on-chain gate all work. The gate is
+deployed to testnet, four real assets are attested from live scans, and the
+round trip — scan, attest, `get_safety` — is reproducible end to end.
+
+Four things are worth knowing before you rely on any of it:
+
+- **Coverage is four assets.** Everything else on the network returns `None`.
+  That is the correct answer — an asset nobody has scanned is unknown, not safe
+  — but it means the registry is not yet useful as a general lookup, and a
+  correctly written gate will refuse nearly everything.
+- **An attestation is only as fresh as its `attested_at`.** Nothing is
+  refreshing them on a schedule. Issuer flags can change after an attestation is
+  written, so pass a `max_age_secs` you would actually accept rather than
+  assuming someone is keeping the registry current.
+- **This is testnet, not mainnet.** One key can write any attestation, testnet
+  is periodically reset, and Soroban entries expire if their TTL is not
+  extended. Nothing here is ready for money.
+- **Severity is capability, not prediction.** It says what an issuer *can* do,
+  never what they are likely to do. A regulated stablecoin with clawback and a
+  scam with clawback score the same, on purpose — see
+  [the severity model](docs/severity-model.md).
 
 ## License
 
