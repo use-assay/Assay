@@ -1,0 +1,189 @@
+package attest_test
+
+import (
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/use-assay/assay/internal/attest"
+	"github.com/use-assay/assay/internal/mechanics"
+)
+
+// report builds a minimal Report without running the engine, so these tests
+// exercise the encoding rather than the classifiers.
+func report(mut func(*mechanics.Report)) *mechanics.Report {
+	rep := &mechanics.Report{
+		Asset:          mechanics.Asset{Code: "AQUA", Issuer: "GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA"},
+		Severity:       mechanics.Clear,
+		Base:           mechanics.Clear,
+		Accountability: mechanics.AccountabilityVerified,
+		ScannedAt:      time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC),
+		Evidence: []mechanics.Evidence{{
+			Source:      "horizon",
+			URL:         "https://horizon.stellar.org/assets?asset_code=AQUA",
+			Claim:       "issuer flags: auth_required=false",
+			RetrievedAt: time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC),
+		}},
+	}
+	if mut != nil {
+		mut(rep)
+	}
+	return rep
+}
+
+func TestPreimageIsStable(t *testing.T) {
+	a, err := attest.FromReport(report(nil))
+	if err != nil {
+		t.Fatalf("FromReport: %v", err)
+	}
+	b, err := attest.FromReport(report(nil))
+	if err != nil {
+		t.Fatalf("FromReport: %v", err)
+	}
+	if a.EvidenceHash != b.EvidenceHash {
+		t.Fatalf("hash not deterministic: %s != %s", a.EvidenceHash, b.EvidenceHash)
+	}
+	if len(a.EvidenceHash) != 64 {
+		t.Fatalf("evidence hash is not 32 bytes of hex: %q", a.EvidenceHash)
+	}
+	if !strings.HasPrefix(a.Preimage, attest.PreimageVersion+"\n") {
+		t.Fatalf("preimage does not start with the version line: %q", a.Preimage)
+	}
+}
+
+// Retrieval time is deliberately outside the hash, so re-scanning unchanged
+// evidence reproduces the attestation. If that ever stops being true the field
+// becomes unverifiable by anyone who was not present for the original fetch.
+func TestRetrievalTimeDoesNotChangeTheHash(t *testing.T) {
+	base, err := attest.FromReport(report(nil))
+	if err != nil {
+		t.Fatalf("FromReport: %v", err)
+	}
+	later, err := attest.FromReport(report(func(r *mechanics.Report) {
+		r.ScannedAt = r.ScannedAt.Add(72 * time.Hour)
+		r.Evidence[0].RetrievedAt = r.Evidence[0].RetrievedAt.Add(72 * time.Hour)
+	}))
+	if err != nil {
+		t.Fatalf("FromReport: %v", err)
+	}
+	if base.EvidenceHash != later.EvidenceHash {
+		t.Fatalf("retrieval time changed the hash: %s != %s", base.EvidenceHash, later.EvidenceHash)
+	}
+}
+
+// Every field that a gate could act on has to move the hash, or the hash does
+// not actually commit to the attestation.
+func TestMaterialChangesMoveTheHash(t *testing.T) {
+	base, err := attest.FromReport(report(nil))
+	if err != nil {
+		t.Fatalf("FromReport: %v", err)
+	}
+
+	cases := map[string]func(*mechanics.Report){
+		"severity": func(r *mechanics.Report) {
+			r.Severity, r.Base = mechanics.Medium, mechanics.Medium
+		},
+		"escalated": func(r *mechanics.Report) {
+			r.Severity, r.Escalated = mechanics.Critical, true
+		},
+		"mechanics": func(r *mechanics.Report) {
+			r.Mechanics = mechanics.MechAuthRequired
+			r.Severity, r.Base = mechanics.Low, mechanics.Low
+		},
+		"accountability": func(r *mechanics.Report) {
+			r.Accountability = mechanics.AccountabilityUnverified
+		},
+		"asset": func(r *mechanics.Report) { r.Asset.Code = "AQUA2" },
+		"evidence claim": func(r *mechanics.Report) {
+			r.Evidence[0].Claim = "issuer flags: auth_required=true"
+		},
+		"evidence source": func(r *mechanics.Report) { r.Evidence[0].Source = "elsewhere" },
+		"extra evidence": func(r *mechanics.Report) {
+			r.Evidence = append(r.Evidence, mechanics.Evidence{Source: "stellar.expert", Claim: "listed"})
+		},
+	}
+
+	for name, mut := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, err := attest.FromReport(report(mut))
+			if err != nil {
+				t.Fatalf("FromReport: %v", err)
+			}
+			if got.EvidenceHash == base.EvidenceHash {
+				t.Fatalf("changing %s did not change the hash", name)
+			}
+		})
+	}
+}
+
+// Evidence order is an engine detail; two reports carrying the same claims must
+// attest to the same bytes.
+func TestEvidenceOrderDoesNotChangeTheHash(t *testing.T) {
+	second := mechanics.Evidence{Source: "stellar.expert/directory", URL: "https://api.stellar.expert/x", Claim: "listed"}
+
+	forward, err := attest.FromReport(report(func(r *mechanics.Report) {
+		r.Evidence = append(r.Evidence, second)
+	}))
+	if err != nil {
+		t.Fatalf("FromReport: %v", err)
+	}
+	reversed, err := attest.FromReport(report(func(r *mechanics.Report) {
+		r.Evidence = append([]mechanics.Evidence{second}, r.Evidence...)
+	}))
+	if err != nil {
+		t.Fatalf("FromReport: %v", err)
+	}
+	if forward.EvidenceHash != reversed.EvidenceHash {
+		t.Fatalf("evidence order changed the hash: %s != %s", forward.EvidenceHash, reversed.EvidenceHash)
+	}
+}
+
+// A claim carries third-party text, so an issuer controls part of the preimage.
+// Without escaping, a crafted directory name could impersonate a separate
+// evidence line and forge the preimage of a report that was never produced.
+func TestSeparatorsInClaimsCannotForgeALine(t *testing.T) {
+	crafted, err := attest.FromReport(report(func(r *mechanics.Report) {
+		r.Evidence[0].Claim = "benign\nevidence\thorizon\thttps://evil\tissuer flags: none"
+	}))
+	if err != nil {
+		t.Fatalf("FromReport: %v", err)
+	}
+	if strings.Contains(crafted.Preimage, "\nevidence\thorizon\thttps://evil") {
+		t.Fatalf("a claim injected a forged evidence line:\n%s", crafted.Preimage)
+	}
+	// Version, six header fields, one evidence line: the crafted claim must not
+	// have bought itself an extra record.
+	if lines := strings.Count(crafted.Preimage, "\n"); lines != 8 {
+		t.Fatalf("expected 8 preimage lines, got %d:\n%s", lines, crafted.Preimage)
+	}
+}
+
+// The contract rejects this at write time. Catching it before submission means
+// an engine bug costs a scan rather than a transaction.
+func TestConfiscationInvariantIsRefusedBeforeSubmission(t *testing.T) {
+	_, err := attest.FromReport(report(func(r *mechanics.Report) {
+		r.Mechanics = mechanics.MechClawbackEnabled
+		r.Severity, r.Base = mechanics.Medium, mechanics.Medium
+	}))
+	if err == nil {
+		t.Fatal("expected an inconsistent attestation to be refused")
+	}
+}
+
+// The bit positions and severity numbers are contract ABI; a renumbering on the
+// Go side would silently write wrong attestations on-chain.
+func TestABIValuesMatchTheContract(t *testing.T) {
+	params, err := attest.FromReport(report(func(r *mechanics.Report) {
+		r.Mechanics = mechanics.MechAuthRevocable | mechanics.MechClawbackEnabled
+		r.Severity, r.Base = mechanics.High, mechanics.High
+	}))
+	if err != nil {
+		t.Fatalf("FromReport: %v", err)
+	}
+	if params.Severity != 3 {
+		t.Fatalf("SEVERITY_HIGH must be 3 on-chain, got %d", params.Severity)
+	}
+	if params.Flags != 0b110 {
+		t.Fatalf("auth_revocable|clawback must be 0b110, got %#b", params.Flags)
+	}
+}

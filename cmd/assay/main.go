@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/use-assay/assay/internal/api"
+	"github.com/use-assay/assay/internal/attest"
 	"github.com/use-assay/assay/internal/scan"
 )
 
@@ -24,8 +25,9 @@ func main() {
 
 func usage() {
 	fmt.Fprint(os.Stderr, `usage:
-  assay scan CODE-ISSUER   classify one asset and print the report as JSON
-  assay serve [-addr]      serve the HTTP API and UI
+  assay scan CODE-ISSUER          classify one asset and print the report as JSON
+  assay attestation CODE-ISSUER   print the on-chain attest() arguments for one asset
+  assay serve [-addr]             serve the HTTP API and UI
 `)
 }
 
@@ -40,6 +42,8 @@ func run(args []string) error {
 	switch args[0] {
 	case "scan":
 		return runScan(args[1:])
+	case "attestation":
+		return runAttestation(args[1:])
 	case "serve":
 		return runServe(args[1:], log)
 	default:
@@ -68,6 +72,53 @@ func runScan(args []string) error {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	return enc.Encode(report)
+}
+
+// runAttestation prints the arguments of an on-chain attest() call for one
+// asset, derived from a live scan.
+//
+// It deliberately does not submit anything. Signing belongs to whoever holds
+// the attester key, and keeping derivation separate from submission means the
+// numbers going on-chain can be inspected — and the evidence hash independently
+// recomputed from -preimage — before a key ever touches them.
+func runAttestation(args []string) error {
+	fs := flag.NewFlagSet("attestation", flag.ContinueOnError)
+	preimage := fs.Bool("preimage", false, "include the canonical bytes evidence_hash commits to")
+	raw := fs.Bool("raw", false, "print only the attest() arguments, tab-separated, for scripting")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return fmt.Errorf("attestation takes exactly one asset (CODE-ISSUER)")
+	}
+	asset, err := scan.ParseAsset(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	report, err := scan.New().Scan(ctx, asset)
+	if err != nil {
+		return err
+	}
+	params, err := attest.FromReport(report)
+	if err != nil {
+		return err
+	}
+
+	if *raw {
+		_, err := fmt.Printf("%d\t%d\t%s\n", params.Severity, params.Flags, params.EvidenceHash)
+		return err
+	}
+	if !*preimage {
+		params.Preimage = ""
+	}
+
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(params)
 }
 
 func runServe(args []string, log *slog.Logger) error {
