@@ -1,0 +1,147 @@
+#![cfg(test)]
+
+//! These tests run the example against the real registry contract, not a mock,
+//! so a change to the registry's ABI breaks the published integration example
+//! rather than only the registry's own tests.
+
+use super::*;
+use assay_safety_registry::{
+    SafetyRegistry as Registry, SafetyRegistryClient as RegistryClient, MECH_AUTH_REVOCABLE,
+    MECH_CLAWBACK_ENABLED, SEVERITY_CLEAR, SEVERITY_HIGH, SEVERITY_MEDIUM,
+};
+use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, BytesN, Env};
+
+struct Fixture<'a> {
+    env: Env,
+    registry: RegistryClient<'a>,
+    gate: ExampleGateClient<'a>,
+}
+
+fn setup() -> Fixture<'static> {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().set_timestamp(1_000_000);
+
+    let registry_id = env.register(Registry, ());
+    let registry = RegistryClient::new(&env, &registry_id);
+    registry.init(&Address::generate(&env));
+
+    let gate_id = env.register(ExampleGate, (registry_id,));
+    let gate = ExampleGateClient::new(&env, &gate_id);
+
+    Fixture {
+        env,
+        registry,
+        gate,
+    }
+}
+
+fn hash(env: &Env) -> BytesN<32> {
+    BytesN::from_array(env, &[3u8; 32])
+}
+
+/// The failure this whole design exists to prevent: an asset nobody scanned
+/// must not be admitted just because there is no bad news about it.
+#[test]
+fn unattested_asset_is_refused() {
+    let f = setup();
+    let asset = Address::generate(&f.env);
+    let user = Address::generate(&f.env);
+
+    assert!(!f.gate.would_admit(&asset));
+    assert_eq!(
+        f.gate.try_deposit(&asset, &user, &100),
+        Err(Ok(Error::NotAttested))
+    );
+    assert_eq!(f.gate.balance(&asset, &user), 0);
+}
+
+#[test]
+fn clean_asset_is_admitted_and_credited() {
+    let f = setup();
+    let asset = Address::generate(&f.env);
+    let user = Address::generate(&f.env);
+    f.registry
+        .attest(&asset, &SEVERITY_CLEAR, &0, &hash(&f.env));
+
+    assert!(f.gate.would_admit(&asset));
+    f.gate.deposit(&asset, &user, &100);
+    assert_eq!(f.gate.balance(&asset, &user), 100);
+}
+
+/// The bitset gate, not the severity gate. A confiscation-capable asset is
+/// refused because of the bit that is set, and the test names that bit.
+#[test]
+fn confiscation_capable_asset_is_refused() {
+    let f = setup();
+    let asset = Address::generate(&f.env);
+    let user = Address::generate(&f.env);
+    f.registry.attest(
+        &asset,
+        &SEVERITY_HIGH,
+        &(MECH_AUTH_REVOCABLE | MECH_CLAWBACK_ENABLED),
+        &hash(&f.env),
+    );
+
+    assert!(!f.gate.would_admit(&asset));
+    assert_eq!(
+        f.gate.try_deposit(&asset, &user, &100),
+        Err(Ok(Error::IssuerCanTakeIt))
+    );
+}
+
+/// Freeze-only is below `SEVERITY_HIGH`, so a gate reading severity alone with
+/// a `<= MEDIUM` threshold would admit this. The bitset is what refuses it.
+#[test]
+fn freeze_capable_asset_is_refused_even_though_severity_is_medium() {
+    let f = setup();
+    let asset = Address::generate(&f.env);
+    f.registry.attest(
+        &asset,
+        &SEVERITY_MEDIUM,
+        &MECH_AUTH_REVOCABLE,
+        &hash(&f.env),
+    );
+
+    assert!(f.registry.is_safe(&asset, &SEVERITY_MEDIUM, &0));
+    assert!(!f.gate.would_admit(&asset));
+}
+
+#[test]
+fn stale_attestation_is_refused() {
+    let f = setup();
+    let asset = Address::generate(&f.env);
+    let user = Address::generate(&f.env);
+    f.registry
+        .attest(&asset, &SEVERITY_CLEAR, &0, &hash(&f.env));
+
+    assert!(f.gate.would_admit(&asset));
+
+    f.env
+        .ledger()
+        .set_timestamp(1_000_000 + MAX_ATTESTATION_AGE + 1);
+
+    assert!(!f.gate.would_admit(&asset));
+    assert_eq!(
+        f.gate.try_deposit(&asset, &user, &100),
+        Err(Ok(Error::AttestationStale))
+    );
+}
+
+/// A re-attestation must be able to close a gate that was previously open.
+#[test]
+fn re_attestation_can_revoke_admission() {
+    let f = setup();
+    let asset = Address::generate(&f.env);
+    f.registry
+        .attest(&asset, &SEVERITY_CLEAR, &0, &hash(&f.env));
+    assert!(f.gate.would_admit(&asset));
+
+    f.registry.attest(
+        &asset,
+        &SEVERITY_HIGH,
+        &(MECH_AUTH_REVOCABLE | MECH_CLAWBACK_ENABLED),
+        &hash(&f.env),
+    );
+    assert!(!f.gate.would_admit(&asset));
+}
