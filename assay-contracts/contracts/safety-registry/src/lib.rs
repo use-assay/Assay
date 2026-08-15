@@ -62,7 +62,9 @@ pub struct Safety {
     pub flags: u32,
     /// SHA-256 over the canonical evidence bundle the scanner fetched. It lets
     /// a verifier prove this attestation corresponds to specific evidence,
-    /// rather than trusting the severity number on its own.
+    /// rather than trusting the severity number on its own. The exact bytes
+    /// hashed are specified by `internal/attest` and reproducible with
+    /// `assay attestation -preimage CODE-ISSUER`.
     pub evidence_hash: BytesN<32>,
     /// Ledger timestamp when this attestation was written.
     pub attested_at: u64,
@@ -108,9 +110,10 @@ impl SafetyRegistry {
 
     /// Writes an attestation for `asset`, identified by its SAC address.
     ///
-    /// The attestation-writer pipeline that drives this from live scans is not
-    /// built yet; this is the on-chain half of that interface. Validation here
-    /// is not a formality: it enforces at write time the invariants that
+    /// `severity`, `flags`, and `evidence_hash` come from the off-chain
+    /// scanner: `assay attestation CODE-ISSUER` derives all three from a live
+    /// scan, and `make attest` submits them. Validation here is not a
+    /// formality: it enforces at write time the invariants that
     /// [`Self::is_safe`] relies on at read time.
     pub fn attest(
         env: Env,

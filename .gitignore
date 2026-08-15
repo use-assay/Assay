@@ -10,5 +10,8 @@ coverage.html
 # Rust
 /assay-contracts/target/
 
+# Built contract wasm (make build-contract)
+/assay-contracts/out/
+
 # Logs
 *.log

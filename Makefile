@@ -2,9 +2,17 @@ BINARY := assay
 PKG := ./...
 
 CONTRACTS := assay-contracts
+WASM := $(CONTRACTS)/out/assay_safety_registry.wasm
+
+# Deployment coordinates. CONTRACT_ID is the live testnet deployment recorded in
+# docs/deployment.md; override it to point the attest/read targets elsewhere.
+NETWORK ?= testnet
+SOURCE ?= assay-attester
+CONTRACT_ID ?= CBK4FBIHMDTXCUPE4E3ZDVSFJSCY5FJETTKNIQPN4LFJIKKIBLKIXQ73
 
 .PHONY: all build test cover lint fmt vet run clean \
-	contract-test contract-lint contract-build
+	contract-test contract-lint contract-build \
+	build-contract deploy-testnet attest read
 
 all: build
 
@@ -38,8 +46,55 @@ contract-lint:
 	cd $(CONTRACTS) && cargo clippy --all-targets -- -D warnings
 
 contract-build:
-	cd $(CONTRACTS) && cargo build --release --target wasm32-unknown-unknown
+	cd $(CONTRACTS) && cargo build --release --target wasm32v1-none
+
+# build-contract produces the deployable artifact. It goes through the stellar
+# CLI rather than cargo because the CLI also runs the wasm optimizer and checks
+# the exported interface; contract-build above is the plain compile.
+build-contract:
+	stellar contract build --manifest-path $(CONTRACTS)/Cargo.toml \
+		--package assay-safety-registry --out-dir $(CONTRACTS)/out
+
+deploy-testnet: build-contract
+	stellar contract deploy --wasm $(WASM) \
+		--source-account $(SOURCE) --network $(NETWORK)
+	@echo
+	@echo "Deployed. Record the contract ID in docs/deployment.md, then run:"
+	@echo "  stellar contract invoke --id <ID> --source-account $(SOURCE) \\"
+	@echo "    --network $(NETWORK) -- init --admin \$$(stellar keys address $(SOURCE))"
+
+# attest scans ASSET live and writes the result on-chain.
+#
+# Every number submitted comes from `assay attestation`, which derives severity,
+# the mechanic bitset, and evidence_hash from that scan. Nothing here lets a
+# hand-written value reach the contract.
+attest: build
+	@test -n "$(ASSET)" || { echo 'usage: make attest ASSET=CODE-ISSUER'; exit 2; }
+	@set -eu; \
+	params=$$(./$(BINARY) attestation -raw '$(ASSET)'); \
+	severity=$$(printf '%s' "$$params" | cut -f1); \
+	flags=$$(printf '%s' "$$params" | cut -f2); \
+	hash=$$(printf '%s' "$$params" | cut -f3); \
+	sac=$$(stellar contract id asset --asset "$$(printf '%s' '$(ASSET)' | sed 's/-/:/')" --network $(NETWORK)); \
+	echo "$(ASSET)"; \
+	echo "  sac          $$sac"; \
+	echo "  severity     $$severity"; \
+	echo "  flags        $$flags"; \
+	echo "  evidence     $$hash"; \
+	stellar contract invoke --id $(CONTRACT_ID) --source-account $(SOURCE) --network $(NETWORK) \
+		-- attest --asset "$$sac" --severity "$$severity" --flags "$$flags" --evidence_hash "$$hash"
+
+# read calls get_safety against the deployed contract. It simulates rather than
+# submits, so reading an attestation costs nothing and needs no signature.
+read:
+	@test -n "$(ASSET)" || { echo 'usage: make read ASSET=CODE-ISSUER'; exit 2; }
+	@set -eu; \
+	sac=$$(stellar contract id asset --asset "$$(printf '%s' '$(ASSET)' | sed 's/-/:/')" --network $(NETWORK)); \
+	echo "$(ASSET) -> $$sac"; \
+	stellar contract invoke --id $(CONTRACT_ID) --source-account $(SOURCE) --network $(NETWORK) \
+		--send=no -- get_safety --asset "$$sac"
 
 clean:
 	rm -f $(BINARY) coverage.out coverage.html
+	rm -rf $(CONTRACTS)/out
 	cd $(CONTRACTS) && cargo clean
