@@ -9,7 +9,8 @@ produces it. Nothing here is reconstructed from an earlier write-up.
 
 - **Registry** `CBK4FBIHMDTXCUPE4E3ZDVSFJSCY5FJETTKNIQPN4LFJIKKIBLKIXQ73` (testnet)
 - **Example gate** `CANO57JRGTATHGLM26TWYPIXERSPVI5R52H33K7ZUJGGOEOVVZA44W3U` (testnet)
-- **Attested** 2026-08-15 · **Re-verified** 2026-09-05
+- **First tranche attested** 2026-08-15 · **re-verified** 2026-09-05
+- **Second tranche** 2026-09-05
 
 To reproduce any row:
 
@@ -22,16 +23,47 @@ make read ASSET=CODE-ISSUER           # what the contract actually stores
 
 ## Sample so far
 
-Four assets, attested 2026-08-15. That is a small sample and it is weighted
-toward assets with something to report — see
-[Coverage](#what-this-run-does-not-establish). Widening it is in progress.
+**13 assets scanned, 7 attested on-chain.** The target is 15–20, reached across
+several sittings rather than in one sweep; this document grows as each tranche
+completes.
 
-| Asset | Severity | Base | Escalated | Accountability | Flags |
-| --- | --- | --- | --- | --- | --- |
-| `AQUA` | 0 clear | 0 | no | verified | `0` |
-| `USDC` | 2 medium | 2 | no | unverified | `18` |
-| `USDZ` | 3 high | 3 | no | verified | `6` |
-| `BERKSHIRE` | 4 critical | 3 | **yes** | unverified | `54` |
+The first four were attested 2026-08-15. The rest were added 2026-09-05, chosen
+deliberately to include assets expected to come back **clean** — a scanner
+measured only on assets with problems is uncalibrated, and the original four
+were three-quarters bad news.
+
+| Asset | Severity | Base | Escalated | Accountability | Flags | On-chain |
+| --- | --- | --- | --- | --- | --- | --- |
+| `AQUA` | 0 clear | 0 | no | verified | `0` | yes |
+| `ARST` | 0 clear | 0 | no | verified | `0` | yes |
+| `yXLM` | 0 clear | 0 | no | verified | `0` | no |
+| `XRP` | 0 clear | 0 | no | verified | `0` | no |
+| `SSLX` | 0 clear | 0 | no | verified | `0` | no |
+| `SHX` | 0 clear | 0 | no | verified | `8` | no |
+| `USDC` | 2 medium | 2 | no | unverified | `18` | yes |
+| `EURC` | 2 medium | 2 | no | unverified | `18` | no |
+| `USDZ` | 3 high | 3 | no | verified | `6` | yes |
+| `ZARZ` | 3 high | 3 | no | verified | `6` | no |
+| `USDGLO` | 3 high | 3 | no | verified | `6` | yes |
+| `BERKSHIRE` | 4 critical | 3 | **yes** | unverified | `54` | yes |
+| `DOGE` | 4 critical | **0** | **yes** | unverified | `48` | yes |
+
+Not every scan is attested. Each attestation is a real transaction, and the
+value of this document is the scan record; the on-chain subset is chosen to
+cover the range rather than to inflate a count.
+
+**Calibration.** Of the 49 issued assets in StellarExpert's top 50 by rating,
+**39 carry no authorization flags at all**, three carry only `auth_immutable`,
+and seven carry some power. So `clear` is the overwhelmingly common answer on
+the network, and a sample that did not reflect that would be measuring the
+wrong thing.
+
+`DOGE` is the most informative row in the table: base severity `0`, final
+severity `4`. Capability analysis honestly returns `clear` for a known scam,
+because its issuer genuinely holds no power over a holder's balance. It is
+critical solely because a curated source says so. That asset is why reputation
+exists as a separate upward-only axis — and it is also what broke two things
+this run found.
 
 ---
 
@@ -258,6 +290,62 @@ measurable.
 
 ---
 
+## The second tranche, 2026-09-05
+
+Nine assets added. All nine scans completed with every source answering — which
+is now something the output states rather than something to be assumed.
+
+| Asset | Issuer | Result |
+| --- | --- | --- |
+| `yXLM` | `GARDNV3Q…TEDL5T55` | clear, verified (`ultracapital.xyz`) |
+| `XRP` | `GBXRPL45…PRDTD5` | clear, verified |
+| `ARST` | `GCSAZVWX…DRGCI3DG` | clear, verified |
+| `SSLX` | `GBHFGY3Z…REH37UR` | clear, verified |
+| `SHX` | `GDSTRSHX…7I7KJ6JH` | clear + `auth_immutable`, verified (`stronghold.co`) |
+| `EURC` | `GDHU6WRG…Y4ITNPP2` | medium, `circle.com` toml 404 |
+| `ZARZ` | `GAROH4EV…MCTJBB3U` | high, clawback, verified (`zeam.money`) |
+| `USDGLO` | `GBBS25EG…J34HWS6XV` | high, clawback, verified; issuer not in directory |
+| `DOGE` | `GA22IDJN…AXCULNQ7P` | **critical by escalation, base clear** |
+
+Three were attested on-chain:
+
+| Asset | On-chain | `evidence_hash` | Attest tx |
+| --- | --- | --- | --- |
+| `DOGE` | `severity 4`, `flags 48`, `attested_at 1788592982` (2026-09-05T07:23:02Z) | `396c9f7c…91647e` | `ac1a89a64159e6ac2e9ed61bd67a79cd1584287cf57d19f9dc188d80e81298a6` |
+| `ARST` | `severity 0`, `flags 0`, `attested_at 1788593012` (2026-09-05T07:23:32Z) | `82a6103f…fccacb` | `f497b91ab84340bcb7418940e620d080c8566e0cdf27346c8d74e165b5d66506` |
+| `USDGLO` | `severity 3`, `flags 6`, `attested_at 1788593047` (2026-09-05T07:24:07Z) | `69b8c4f8…7c27a5` | `6016ed7d908cd20237f114b0cb6778886027ddc8336952acb77ddbeff16caf42` |
+
+`SHX` is worth a note: `auth_immutable` is set, so it carries mechanic bit
+`1 << 3` while staying severity `0`. That is deliberate — locking the flag set
+is not a power over holders, and here it is protective, because the issuer can
+now never add freeze or clawback. Bits in the report are not all bad news, and
+a gate refusing on any non-zero bitset would refuse this asset for being
+permanently safe.
+
+`EURC` repeats the `USDC` result exactly: Circle's euro stablecoin also fails
+reciprocal SEP-1 verification, because `circle.com/.well-known/stellar.toml`
+returns 404 for both. Two independent assets, same issuer domain, same honest
+`unverified`.
+
+### The blocklist did not flag either confirmed scam
+
+Both `BERKSHIRE` and `DOGE` are tagged `malicious, unsafe` in the curated
+directory. Both had their `home_domain` checked against the malicious-domain
+blocklist, and both came back `blocked=false`:
+
+```
+$ curl -s https://api.stellar.expert/explorer/directory/blocked-domains/darkpool.digital
+{"domain":"darkpool.digital","blocked":false}
+```
+
+So the escalation came entirely from the directory, in both cases. Consulting
+only the blocklist would have missed two out of two known scams in this sample.
+That is not a criticism of StellarExpert — the two data sets answer different
+questions — but it is a concrete reason Assay consumes both, and a caution
+against treating any single curated source as complete.
+
+---
+
 ## Findings from this run
 
 ### Finding 1 — a source outage is reported as a clean result {#finding-1}
@@ -357,20 +445,122 @@ sitting that found it. Tracked as
 
 ---
 
+### Finding 3 — an unlisted address was reported as `listed as ""`
+
+Surfaced by `USDGLO-GBBS25EG…`. StellarExpert's directory does not return 404
+for an address it holds no entry for; it returns `200` with an empty object:
+
+```
+$ curl -s -w " [HTTP %{http_code}]" https://api.stellar.expert/explorer/directory/GBBS25EGYQPGEZCGCFBKG4OAGFXU6DSOQBGTHELLJT3HZXZJ34HWS6XV
+{} [HTTP 200]
+```
+
+The client treated any `200` as a hit, so the reputation check published:
+
+```
+stellar.expert/directory: listed as "" (domain "", tags: )
+```
+
+A claim the directory never made, attributed to it by name and URL, and it
+would have entered the `evidence_hash` preimage of any attestation built from
+that scan.
+
+Not a severity bug — an empty entry has no tags, so nothing escalated and no
+risk was under-reported. The damage is to the evidence, which is the part a
+reader is supposed to be able to check independently, and
+[CONTRIBUTING.md](../CONTRIBUTING.md)'s first rule is never to display a value
+that was not fetched.
+
+**Status: fixed.** Tracked as
+[#25](https://github.com/use-assay/Assay/issues/25). Confirmed against three
+unlisted addresses before encoding the behaviour. The four earlier attestations
+still reproduce their hashes; none had an empty entry.
+
+### Finding 4 — the example gate admits a critical asset
+
+This is the one the widened sample was for, and it is on a deployed contract.
+
+`DOGE` is attested `severity 4`, `flags 48`. The registry answers correctly:
+
+```
+registry is_safe(DOGE, max_severity=2, max_age_secs=0)  ->  false
+gate     would_admit(DOGE)                              ->  true
+```
+
+The example gate masks capability bits only —
+`REFUSED_MECHANICS = auth_revocable | auth_clawback_enabled = 6` — and `48 & 6`
+is `0`. It never reads `severity` at all, so it admits an asset a curated source
+calls malicious.
+
+The cause is structural rather than a slip. Reputation escalation raises
+`severity` and sets `blocklisted`; it does not set a capability bit, and it must
+not, because capability bits describe what an issuer *can do* and a scam listing
+is not a capability. A mask over capability bits therefore cannot see escalation
+by construction — which makes "gate on the bitset", the advice
+[integrating.md](integrating.md) previously led with, actively unsafe as a
+general rule. The correct rule is **bitset _and_ severity**.
+
+`DOGE` also shows why this went unnoticed: it is the only asset in the sample
+whose base severity and final severity differ by the whole scale, `0` to `4`.
+Every other asset here has capability bits that a mask would catch anyway, so
+the mask looked sufficient right up until an asset arrived whose severity came
+from somewhere the mask cannot see.
+
+**Status: docs corrected, contract fix pending.** Tracked as
+[#26](https://github.com/use-assay/Assay/issues/26). The guidance and code
+sample in [integrating.md](integrating.md) now gate on both axes and carry the
+`DOGE` counter-example; the deployed example contract still has the bug and the
+document says so rather than quietly patching around it. Correcting the contract
+means a rebuild and redeploy, which is its own change.
+
+### The fix from Finding 1 caught a real outage during this run
+
+Not a finding, but the reason to record it: while re-verifying hashes mid-sweep,
+one `BERKSHIRE` scan came back
+
+```
+attest: scan is undetermined, so there is nothing to attest: reputation could not complete
+```
+
+A genuine transient StellarExpert failure, caught and refused, during exactly
+the kind of rapid multi-asset sweep [#23](https://github.com/use-assay/Assay/issues/23)
+predicted would trigger it. The next attempt succeeded and reproduced the
+on-chain hash. Before the fix, that scan would have returned `severity 3`
+instead of `4` — silently dropping the escalation — and been attestable.
+
+---
+
 ## What this run does not establish
 
-- **Four assets is not a measurement.** No precision or recall number is quoted,
-  because four subjects cannot support one.
-- **The sample is skewed toward findings.** Three of four assets have something
-  to report. A scanner evaluated only on assets with problems is uncalibrated;
-  widening the sample with assets expected to come back clean is in progress and
-  this document will grow.
+- **13 assets is not a measurement.** No precision or recall number is quoted,
+  because 13 subjects cannot support one. The target is 15–20 and this document
+  is not finished.
+- **The sample is not random.** It was drawn from StellarExpert's top 50 by
+  rating, plus two known scams carried over from the eval set. Highly-rated
+  assets are not representative of the network: a random sample would be
+  dominated by tiny, unlisted, recently-created assets, which is where a
+  scanner's judgment is hardest and where this sample says nothing.
+- **Nothing here measures false negatives.** Every asset in the table was
+  classified from flags that are consensus-enforced facts, so the capability
+  half is hard to get wrong. What is not measured is what Assay *fails to
+  notice* — an abusive issuer with no flags and no curated listing is `clear`
+  here and would be, correctly and uselessly, until someone reports it.
 - **No independent verification of any issuer's identity.** A verified
   `stellar.toml` and a directory listing are claims by others, recorded as
   attributed evidence. Assay has not confirmed that any issuer here is the
-  entity it appears to be.
+  entity it appears to be. This matters most for the clawback-capable assets,
+  where "legitimate regulated issuer" is the reading a reader will reach for and
+  is precisely what has not been established — see
+  [#16](https://github.com/use-assay/Assay/issues/16).
+- **The eval set is unchanged at five subjects.** These scans are live and
+  drift with the ledger; a fixture pins judgment. Attesting an asset is not
+  labelling it.
 - **Testnet.** One key can write any attestation; testnet resets and Soroban TTL
   expiry will remove these entries.
-- **Attested 2026-08-15, re-verified 2026-09-05.** Issuers can change flags at
-  any time. These attestations are exactly as fresh as their `attested_at`, and
-  nothing refreshes them on a schedule.
+- **Attested 2026-08-15 and 2026-09-05.** Issuers can change flags at any time.
+  These attestations are exactly as fresh as their `attested_at`, and nothing
+  refreshes them on a schedule.
+- **Four findings in 13 assets.** Two are fixed, one has its docs corrected and
+  its code pending, one is deferred with a version bump behind it. That rate
+  should be read as a statement about how much of this had been exercised
+  before, not as a claim that the remainder is now sound.

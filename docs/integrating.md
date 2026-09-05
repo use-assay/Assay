@@ -72,17 +72,32 @@ Severity `0..=4` is the same information collapsed to one ordered number:
 `0` clear, `1` `auth_required`, `2` `auth_revocable`, `3`
 `auth_clawback_enabled`, `4` reputation escalation.
 
-**Gate on the bitset when you care about a specific power.** Severity answers
-"how bad"; the bitset answers "which power", and a contract usually has an
-opinion about a particular one. The difference is not hypothetical — from the
-live deployment:
+**Gate on the bitset *and* on severity. Neither alone is enough.** Severity
+answers "how bad"; the bitset answers "which power". They fail in opposite
+directions, and both failures are live on the current deployment:
 
-- `USDC` is attested at severity `2` with flags `18`
-  (`auth_revocable | domain_unverified`). A gate reading `severity <= 2` admits
-  it. A custodial balance that cannot survive a freeze should not.
-- `USDZ` is attested at severity `3` with flags `6`
-  (`auth_revocable | auth_clawback_enabled`), and its domain *is* verified.
-  Verification does not weaken clawback, so it is still refused.
+- **Severity alone is too coarse.** `USDC` is attested at severity `2` with
+  flags `18` (`auth_revocable | domain_unverified`). A gate reading
+  `severity <= 2` admits it. A custodial balance that cannot survive a freeze
+  should not. `USDZ` shows the same point from the other side: severity `3`,
+  flags `6`, and a *verified* domain — verification does not weaken clawback.
+- **The bitset alone is blind to reputation.** `DOGE-GA22IDJN…` is attested at
+  severity `4` — critical — with flags `48`
+  (`domain_unverified | blocklisted`). It carries **no capability bits at all**,
+  because its issuer genuinely cannot freeze or confiscate; it is critical
+  because a curated source calls it malicious. A gate masking only on
+  `auth_revocable | auth_clawback_enabled` computes `48 & 6 == 0` and **admits
+  a known scam.**
+
+That second case is not hypothetical either: the deployed example gate has this
+bug, and `would_admit` returns `true` for DOGE today. Tracked as
+[#26](https://github.com/use-assay/Assay/issues/26); the example and this
+section are being corrected together.
+
+The reason is structural. Reputation escalation raises `severity` and sets
+`blocklisted`; it does not set a capability bit, and it must not — capability
+bits describe what the issuer *can do*, and a scam listing is not a capability.
+So a mask over capability bits cannot see escalation, by design.
 
 Note also that bits `1 << 3` through `1 << 5` are reported, not powers. Refusing
 on `domain_unverified` refuses most of the network, including plenty of assets
@@ -96,6 +111,11 @@ pub const MECH_CLAWBACK_ENABLED: u32 = 1 << 2;
 
 /// Powers a custodial balance cannot survive.
 pub const REFUSED_MECHANICS: u32 = MECH_AUTH_REVOCABLE | MECH_CLAWBACK_ENABLED;
+
+/// The other half. Without this, an asset that is critical purely by
+/// reputation — no capability bits set — passes the mask above and is
+/// admitted. See DOGE in the previous section.
+pub const MAX_SEVERITY: u32 = 2;
 
 /// Your policy, not Assay's. A deposit gate and a large settlement should not
 /// be forced to agree on how fresh is fresh enough.
@@ -115,6 +135,13 @@ fn assert_safe(env: &Env, registry: &Address, asset: &Address) -> Result<(), Err
         return Err(Error::AttestationStale);
     }
 
+    // Both axes, and they refuse for different reasons — so report them
+    // separately. A caller that cannot tell "the issuer can take it" from
+    // "a curated source calls this malicious" cannot act on either.
+    if safety.severity > MAX_SEVERITY {
+        return Err(Error::SeverityTooHigh);
+    }
+
     if safety.flags & REFUSED_MECHANICS != 0 {
         return Err(Error::IssuerCanTakeIt);
     }
@@ -122,6 +149,11 @@ fn assert_safe(env: &Env, registry: &Address, asset: &Address) -> Result<(), Err
     Ok(())
 }
 ```
+
+The severity check has to be there even though it looks redundant next to the
+mask. Every capability bit does have a severity, so for the assets in the table
+above the mask appears to subsume it — right up to an asset like DOGE whose
+severity comes from somewhere the mask cannot see.
 
 Then call it before you act, in the same transaction:
 
@@ -204,7 +236,19 @@ stellar contract invoke --id $GATE --source-account your-key --network testnet -
 stellar contract invoke --id $GATE --source-account your-key --network testnet --send=no \
   -- would_admit --asset CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC
 # false
+
+# DOGE — attested critical (severity 4), but no capability bits
+stellar contract invoke --id $GATE --source-account your-key --network testnet --send=no \
+  -- would_admit --asset CDUV37BUTYKKWNGECZZNRYMM7JIQYYWAI7L2TPTXWQAEMIPG4SXRBRPD
+# true   <-- WRONG, and left here deliberately: this is issue #26
 ```
+
+That last result is the deployed example's bug, not a quirk of the asset. It
+masks capability bits only, so a critical-by-reputation asset walks through.
+The registry itself answers correctly — `is_safe(DOGE, 2, 0)` returns `false` —
+so the fault is in the example, and the code in section 3 above is the
+corrected version. It is shown rather than quietly patched because an
+integrator who copied the earlier version needs to know.
 
 Submitting a `deposit` rather than simulating gives you the reason: `USDZ`
 reverts with `Error(Contract, #3)` (`IssuerCanTakeIt`) and the unattested asset
