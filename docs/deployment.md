@@ -39,9 +39,11 @@ Any of these can be read at
 
 ## Attested assets
 
-Four mainnet assets, spanning the severity range. Every number below was
+Seven mainnet assets, spanning the severity range. Every number below was
 produced by `assay attestation` from a live scan and submitted unmodified by
-`make attest`; none was typed by hand.
+`make attest`; none was typed by hand. The full scan record, including the six
+further assets scanned but not attested, is in
+[attestation-run.md](attestation-run.md).
 
 | Asset | Severity | Flags | Mechanics | Attest transaction |
 | --- | --- | --- | --- | --- |
@@ -49,6 +51,9 @@ produced by `assay attestation` from a live scan and submitted unmodified by
 | `USDC` | 2 medium | `18` | `auth_revocable`, `domain_unverified` | `9869957e510ac6cb9ba4e5ffaff66ad0286e420e824efc0095d9e578be37564e` |
 | `USDZ` | 3 high | `6` | `auth_revocable`, `auth_clawback_enabled` | `069d519fa20c472bbc3756291307fb30719219903c1e62a27b4967c0b07ecfd6` |
 | `BERKSHIRE` | 4 critical | `54` | `auth_revocable`, `auth_clawback_enabled`, `domain_unverified`, `blocklisted` | `322f4bb5fcc84cea9231b7d12e0a964a304a7bd4ea78f97991ca335426e5e2ff` |
+| `ARST` | 0 clear | `0` | — | `f497b91ab84340bcb7418940e620d080c8566e0cdf27346c8d74e165b5d66506` |
+| `USDGLO` | 3 high | `6` | `auth_revocable`, `auth_clawback_enabled` | `6016ed7d908cd20237f114b0cb6778886027ddc8336952acb77ddbeff16caf42` |
+| `DOGE` | 4 critical | `48` | `domain_unverified`, `blocklisted` | `ac1a89a64159e6ac2e9ed61bd67a79cd1584287cf57d19f9dc188d80e81298a6` |
 
 Issuers, SAC addresses, and the evidence hash each attestation commits to:
 
@@ -58,6 +63,9 @@ Issuers, SAC addresses, and the evidence hash each attestation commits to:
 | `USDC` | `GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN` | `CA2E53VHFZ6YSWQIEIPBXJQGT6VW3VKWWZO555XKRQXYJ63GEBJJGHY7` | `e7fc765d…d790bd` |
 | `USDZ` | `GAKTLPC4ZV37SSCITQ5IS5AQ4WPF4CF4VZJQPPAROSGXMYOATF5U6XPR` | `CAOM5NKBTSGEXTZZKH3STWSFWURMODC3TZ4NS2THN7W5YUDFK3IOHIHU` | `ca9b13a6…65fb4d` |
 | `BERKSHIRE` | `GA22QHSHQEHDJS2ZOINSC77XPPQ24G5EFRJGVEIZLKC5FAW3PQ5XNSDQ` | `CALAZXOC32XF2DFRKDOFQK7XQETZZTUK7C2OKC6YKPX6KY2YWU2YSPQW` | `dc2bbf08…171a0d` |
+| `ARST` | `GCSAZVWXZKWS4XS223M5F54H2B6XPIIXZZGP7KEAIU6YSL5HDRGCI3DG` | `CBARCMJYRRNSYCWCR3EU2PEHAHWHBCQSMIKQIUSDWR3BK7CBCP622Q2R` | `82a6103f…fccacb` |
+| `USDGLO` | `GBBS25EGYQPGEZCGCFBKG4OAGFXU6DSOQBGTHELLJT3HZXZJ34HWS6XV` | `CDGBOKCE25PVUKFWST2EEK52NHRS5WQ7TN26DFJYCEQNZNROQRSPIBQA` | `69b8c4f8…7c27a5` |
+| `DOGE` | `GA22IDJNHUMC3XKUCCBFNTQIJOUBWINC5GCXHLJ2V6KZ3OWAXCULNQ7P` | `CDUV37BUTYKKWNGECZZNRYMM7JIQYYWAI7L2TPTXWQAEMIPG4SXRBRPD` | `396c9f7c…91647e` |
 
 `USDZ` is the case the [severity model](severity-model.md) exists to handle: a
 confiscation-capable issuer with a *verified* domain. It scores `high` on
@@ -67,9 +75,15 @@ at `high`, and StellarExpert's blocklisting of `nasdaq.finance` raises it to
 `critical`. Reputation moved it up; nothing in the pipeline can move an asset
 down.
 
+`DOGE` is the same escalation shown at its extreme, and is the more instructive
+of the two: base severity `0`, final severity `4`. Its issuer holds no
+authorization flags at all, so capability analysis honestly returns `clear` for
+an asset the curated directory tags `malicious`. Everything separating it from
+a harmless asset lives on the reputation axis.
+
 ### The assets are mainnet; the attestations are testnet
 
-These four assets live on pubnet. Their **testnet** SAC addresses are what the
+These assets live on pubnet. Their **testnet** SAC addresses are what the
 registry is keyed on here, because a contract ID is derived from the network
 passphrase and so differs per network. Scanning reads pubnet, where the assets
 actually are; attesting writes to testnet, where the contract actually is. A
@@ -133,9 +147,14 @@ submitted `deposit` reverts with the contract error naming the reason:
 | `USDZ` | `false` | reverts `Error(Contract, #3)` — `IssuerCanTakeIt` |
 | unattested | `false` | reverts `Error(Contract, #1)` — `NotAttested` |
 
-The gate refuses `USDC` too, at severity 2, because it gates on the
-`auth_revocable` bit rather than on the severity number. See
-[integrating.md](integrating.md) for why a contract usually wants the bitset.
+The gate refuses `USDC` too, at severity 2, because it reads the
+`auth_revocable` bit rather than the severity number.
+
+It also **wrongly admits `DOGE`** for the same reason: the example masks
+capability bits only, and DOGE's severity `4` comes entirely from reputation,
+which sets no capability bit. A correct gate reads both axes. See
+[integrating.md](integrating.md) for the corrected pattern and
+[#26](https://github.com/use-assay/Assay/issues/26) for the contract fix.
 
 ## Redeploying
 
@@ -167,7 +186,7 @@ hand-written severity reach the contract.
 - **One key can write anything.** The admin is a single ed25519 account whose
   seed lives on one machine. Anyone holding it can attest any severity for any
   asset. A real deployment wants a threshold of independent attesters.
-- **Four assets.** Everything else on the network reads as `None`. That is the
+- **7 attested assets.** Everything else on the network reads as `None`. That is the
   correct answer — unknown, not safe — but it means the registry is not useful
   as a general lookup yet.
 - **No re-attestation schedule.** These attestations are as fresh as the

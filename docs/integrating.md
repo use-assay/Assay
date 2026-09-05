@@ -278,7 +278,7 @@ cannot tell you which — that is what `attested_at` and your own re-scan are fo
 ## Before you rely on this
 
 - It is on **testnet**, not pubnet.
-- **Four assets are attested.** Everything else returns `None`, which your gate
+- **7 assets are attested.** Everything else returns `None`, which your gate
   must treat as "unknown", and which — if you gate correctly — means your
   contract refuses nearly every asset on the network.
 - **One key can write any attestation.** There is no multisig and no threshold

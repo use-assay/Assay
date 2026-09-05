@@ -61,20 +61,22 @@ carries an explicit, evaluated position on legitimate clawback use. See
 | [docs/severity-model.md](docs/severity-model.md) | The judgment layer: severity levels, the legitimate-use carve-out, and why |
 | [docs/checks.md](docs/checks.md) | Each mechanic Assay checks, and what it can and cannot conclude |
 | [docs/contract-interface.md](docs/contract-interface.md) | `get_safety(asset)` design and the `evidence_hash` encoding |
-| [docs/integrating.md](docs/integrating.md) | How your contract calls `get_safety` and gates on the bitset |
+| [docs/integrating.md](docs/integrating.md) | How your contract calls `get_safety` and gates on both severity and the bitset |
 | [docs/deployment.md](docs/deployment.md) | Deployed addresses, attested assets, transaction hashes |
+| [docs/attestation-run.md](docs/attestation-run.md) | Every asset scanned, what each check returned, and what the run exposed about the scanner |
 | [docs/eval.md](docs/eval.md) | Labelled trap/legitimate set and current results |
 | [docs/adding-a-check.md](docs/adding-a-check.md) | How to write a new mechanic check |
 
 ## Status
 
 The mechanics engine, the HTTP API, and the on-chain gate all work. The gate is
-deployed to testnet, four real assets are attested from live scans, and the
-round trip — scan, attest, `get_safety` — is reproducible end to end.
+deployed to testnet, 13 real assets have been scanned and 7 attested from live
+scans, and the round trip — scan, attest, `get_safety` — is reproducible end to
+end, verified three weeks after the first attestations were written.
 
 Four things are worth knowing before you rely on any of it:
 
-- **Coverage is four assets.** Everything else on the network returns `None`.
+- **Coverage is 7 attested assets.** Everything else on the network returns `None`.
   That is the correct answer — an asset nobody has scanned is unknown, not safe
   — but it means the registry is not yet useful as a general lookup, and a
   correctly written gate will refuse nearly everything.
