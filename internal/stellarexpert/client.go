@@ -90,6 +90,18 @@ func (c *Client) Directory(ctx context.Context, address string) (*DirectoryEntry
 	if err != nil || !found {
 		return nil, err
 	}
+
+	// The directory answers an address it holds no entry for with 200 and an
+	// empty object, not a 404 — verified against several unlisted addresses.
+	// So a successful decode is not by itself a listing. A real entry always
+	// echoes the address it describes, which is the discriminator used here.
+	//
+	// Without this, an absent entry surfaces downstream as the attributed
+	// claim `listed as "" (domain "", tags: )` — a statement this source never
+	// made, attached to its name and URL.
+	if e.Address == "" {
+		return nil, nil
+	}
 	return &e, nil
 }
 
