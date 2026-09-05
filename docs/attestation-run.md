@@ -296,10 +296,34 @@ asymmetry was not documented anywhere.
 Per [CONTRIBUTING.md](../CONTRIBUTING.md), a way to make Assay under-report risk
 is a security issue rather than a bug.
 
-**Status: open**, being fixed next. This run's four assets are unaffected: all
-three sources answered for all four, evidenced by the four evidence entries each
-report carries. But that is luck rather than design — nothing in the output
-would have told us otherwise, which is the finding.
+**Status: fixed.** Tracked as
+[#23](https://github.com/use-assay/Assay/issues/23).
+
+An unreachable source is now recorded as attributed evidence carrying the
+failure verbatim, the finding is marked `undetermined`, the report names the
+check on `undetermined_checks`, and `attest.FromReport` refuses to write a
+partial scan on-chain.
+
+Demonstrated rather than asserted — the scanner pointed at a dead StellarExpert
+endpoint, everything else live:
+
+```
+$ # DOGE-GA22IDJN…, StellarExpert pointed at 127.0.0.1:1
+severity      clear
+undetermined  true [reputation]
+attestable?   attest: scan is undetermined, so there is nothing to attest: reputation could not complete
+```
+
+Before the fix, that same scan produced `severity: clear` with "that is the
+normal case" and was writable on-chain. Severity is deliberately still `clear`:
+capability was fully readable and is reported as measured. What changed is that
+the report says so and the attestation is refused.
+
+This run's four assets are unaffected — all three sources answered for all four,
+evidenced by the four evidence entries each report carries, and all four
+on-chain hashes still reproduce after the change. But that was luck rather than
+design: nothing in the output would have told us otherwise, which is the
+finding.
 
 ### Finding 2 — the evidence hash is not reproducible across machines {#finding-2}
 
@@ -328,7 +352,8 @@ non-reproducible. USDC is unaffected: a clean `status 404` is stable.
 a stable form before they enter the preimage, which changes the preimage and so
 requires an `assay-evidence-v2` version bump and re-attestation of BERKSHIRE.
 That is a larger change than it looks and is not being rushed into the same
-sitting that found it. Tracked as an issue.
+sitting that found it. Tracked as
+[#24](https://github.com/use-assay/Assay/issues/24).
 
 ---
 

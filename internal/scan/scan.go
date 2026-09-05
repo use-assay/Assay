@@ -100,13 +100,19 @@ func (s *Scanner) Subject(ctx context.Context, a mechanics.Asset) (*mechanics.Su
 		}
 
 		sub.BlockedURL = s.Expert.BlockedDomainURL(domain)
-		if blocked, err := s.Expert.BlockedDomain(ctx, domain); err == nil {
+		blocked, err := s.Expert.BlockedDomain(ctx, domain)
+		if err != nil {
+			sub.BlockedErr = err.Error()
+		} else {
 			sub.Blocked = blocked
 		}
 	}
 
 	sub.DirectoryURL = s.Expert.DirectoryURL(a.Issuer)
-	if entry, err := s.Expert.Directory(ctx, a.Issuer); err == nil {
+	entry, err := s.Expert.Directory(ctx, a.Issuer)
+	if err != nil {
+		sub.DirectoryErr = err.Error()
+	} else {
 		sub.Directory = entry
 	}
 

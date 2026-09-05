@@ -40,6 +40,30 @@ func (c ReputationCheck) Run(_ context.Context, s *Subject) (Finding, error) {
 	}
 
 	var flagged []string
+	// unreachable names sources that were asked and did not answer. It is kept
+	// separate from "answered, not listed" because collapsing the two is
+	// exactly how a scanner reports an outage as a clean bill of health.
+	var unreachable []string
+
+	if s.DirectoryErr != "" {
+		unreachable = append(unreachable, "the curated directory")
+		f.Evidence = append(f.Evidence, Evidence{
+			Source:      "stellar.expert/directory",
+			URL:         s.DirectoryURL,
+			Claim:       "not retrievable: " + s.DirectoryErr,
+			RetrievedAt: s.FetchedAt,
+		})
+	}
+
+	if s.BlockedErr != "" {
+		unreachable = append(unreachable, "the malicious-domain blocklist")
+		f.Evidence = append(f.Evidence, Evidence{
+			Source:      "stellar.expert/blocked-domains",
+			URL:         s.BlockedURL,
+			Claim:       "not retrievable: " + s.BlockedErr,
+			RetrievedAt: s.FetchedAt,
+		})
+	}
 
 	if s.Directory != nil {
 		tags := strings.Join(s.Directory.Tags, ", ")
@@ -71,6 +95,10 @@ func (c ReputationCheck) Run(_ context.Context, s *Subject) (Finding, error) {
 		}
 	}
 
+	// A positive listing decides the question even if the other source is down.
+	// Evidence of abuse does not become less true because a second endpoint
+	// timed out, and Critical is the ceiling, so nothing that is still missing
+	// could raise the level further.
 	if len(flagged) > 0 {
 		f.Severity = Critical
 		f.Mechanics = MechBlocklisted
@@ -81,10 +109,26 @@ func (c ReputationCheck) Run(_ context.Context, s *Subject) (Finding, error) {
 		return f, nil
 	}
 
+	// Nothing was flagged — but that only means something if every source
+	// actually answered. Reporting an outage as a clean result is the one
+	// failure this check must never have, because reputation is the only axis
+	// that can escalate: an asset that is critical solely by escalation reads
+	// as its bare capability severity when this source is unavailable.
+	if len(unreachable) > 0 {
+		f.Undetermined = true
+		f.Reasoning = "Reputation could not be determined: " + joinPowers(unreachable) +
+			" did not answer, and the failure is recorded above verbatim. This is " +
+			"not a clean result. Absence of a malicious listing is only meaningful " +
+			"when the list was actually read, and an asset whose only adverse signal " +
+			"is a curated listing would look clear here. Treat the severity below as " +
+			"a floor rather than an answer."
+		return f, nil
+	}
+
 	if len(f.Evidence) == 0 {
-		f.Reasoning = "No curated reputation data was available for this issuer. " +
-			"That is the normal case and is not a positive signal: absence from a " +
-			"scam list is not evidence of safety."
+		f.Reasoning = "Curated sources were reachable and returned nothing for this " +
+			"issuer. That is the normal case and is not a positive signal: absence " +
+			"from a scam list is not evidence of safety."
 		return f, nil
 	}
 

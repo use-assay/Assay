@@ -46,6 +46,10 @@ type Params struct {
 // ErrInconsistent reports a report whose severity the contract would reject.
 var ErrInconsistent = errors.New("attest: attestation violates the confiscation invariant")
 
+// ErrUndetermined reports a scan that could not complete, and so must not be
+// written on-chain at all.
+var ErrUndetermined = errors.New("attest: scan is undetermined, so there is nothing to attest")
+
 // FromReport derives the attest() arguments for a scan report.
 //
 // It re-checks the confiscation invariant that the contract enforces at write
@@ -55,6 +59,21 @@ var ErrInconsistent = errors.New("attest: attestation violates the confiscation 
 func FromReport(rep *mechanics.Report) (Params, error) {
 	flags := uint32(rep.Mechanics)
 	sev := uint32(rep.Severity)
+
+	// A partial scan is refused outright rather than attested with the severity
+	// it managed to reach. On-chain there is nowhere to put the caveat: a
+	// consumer calling get_safety sees a severity and a timestamp, and has no
+	// way to discover that the reputation axis was never read. Writing a level
+	// derived from half the evidence would be indistinguishable, to every
+	// downstream gate, from one derived from all of it.
+	//
+	// So the honest options are to attest a complete scan or to attest nothing,
+	// and the contract already treats "nothing" correctly — get_safety returns
+	// None and every gate fails closed on it.
+	if rep.Undetermined {
+		return Params{}, fmt.Errorf("%w: %s could not complete",
+			ErrUndetermined, strings.Join(rep.UndeterminedChecks, ", "))
+	}
 
 	if flags&uint32(mechanics.ConfiscationMask) != 0 && sev < uint32(mechanics.High) {
 		return Params{}, fmt.Errorf("%w: clawback bit set at severity %d", ErrInconsistent, sev)

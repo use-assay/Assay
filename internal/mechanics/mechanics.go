@@ -50,6 +50,17 @@ type Finding struct {
 	// than from issuer capability. The engine keeps these separate so that the
 	// capability-only base severity stays auditable.
 	Escalation bool `json:"escalation"`
+	// Undetermined marks a check that could not reach a conclusion because a
+	// source it depends on was unreachable. It is not the same as a check that
+	// looked and found nothing, and the two must stay distinguishable by a
+	// program, not only by a human reading Reasoning.
+	//
+	// A check sets this only for the part of its answer that is missing. A
+	// positive signal that did arrive is still valid: reputation that reaches
+	// a source and finds a malicious listing escalates normally, because
+	// evidence of abuse does not become less true when a second source is
+	// down.
+	Undetermined bool `json:"undetermined"`
 	// Reasoning always states the raw capability in plain language, whatever
 	// the severity works out to.
 	Reasoning string `json:"reasoning"`
@@ -75,10 +86,17 @@ type Subject struct {
 	TomlURL string
 	TomlErr string
 
+	// Directory and Blocked are the curated reputation signals. Each has an Err
+	// field for the same reason TomlErr exists: a nil entry means "not listed"
+	// only when the source actually answered. A nil entry with a non-empty Err
+	// means the source was never reached, which is a different fact and must
+	// not be allowed to render as the same one.
 	Directory    *stellarexpert.DirectoryEntry
 	DirectoryURL string
+	DirectoryErr string
 	Blocked      *stellarexpert.BlockedDomain
 	BlockedURL   string
+	BlockedErr   string
 
 	FetchedAt time.Time
 }
@@ -119,6 +137,19 @@ type Report struct {
 	// Accountability is reported alongside severity, never folded into it.
 	Accountability Accountability `json:"accountability"`
 
+	// Undetermined reports that at least one check could not complete because
+	// a source was unreachable, so this report is a partial answer.
+	//
+	// Severity is still whatever the checks that did complete established, and
+	// it is never inflated to compensate — inventing a level would be its own
+	// dishonesty. What this says is that the level may be too low, and that
+	// nobody should read the absence of an escalation as evidence there is
+	// nothing to escalate on.
+	Undetermined bool `json:"undetermined"`
+	// UndeterminedChecks names the checks that could not complete, so a
+	// consumer can see which axis is missing rather than only that one is.
+	UndeterminedChecks []string `json:"undetermined_checks"`
+
 	Mechanics     Mechanic   `json:"-"`
 	MechanicNames []string   `json:"mechanics"`
 	Findings      []Finding  `json:"findings"`
@@ -152,11 +183,12 @@ func NewEngine() *Engine {
 //     permitted to influence either severity.
 func (e *Engine) Run(ctx context.Context, s *Subject) (*Report, error) {
 	rep := &Report{
-		Asset:          s.Asset,
-		Accountability: AccountabilityUnknown,
-		ScannedAt:      s.FetchedAt,
-		Findings:       []Finding{},
-		Evidence:       []Evidence{},
+		Asset:              s.Asset,
+		Accountability:     AccountabilityUnknown,
+		ScannedAt:          s.FetchedAt,
+		Findings:           []Finding{},
+		Evidence:           []Evidence{},
+		UndeterminedChecks: []string{},
 	}
 
 	for _, c := range e.Checks {
@@ -172,6 +204,14 @@ func (e *Engine) Run(ctx context.Context, s *Subject) (*Report, error) {
 			}
 		} else if f.Severity > rep.Base {
 			rep.Base = f.Severity
+		}
+
+		// A degraded check is recorded, never averaged away. One unreachable
+		// source is enough to make the whole report partial, because a caller
+		// cannot know which axis mattered for the asset in front of them.
+		if f.Undetermined {
+			rep.Undetermined = true
+			rep.UndeterminedChecks = append(rep.UndeterminedChecks, f.Check)
 		}
 
 		if f.Accountability != nil {

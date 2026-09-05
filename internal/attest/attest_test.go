@@ -1,6 +1,7 @@
 package attest_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -185,5 +186,51 @@ func TestABIValuesMatchTheContract(t *testing.T) {
 	}
 	if params.Flags != 0b110 {
 		t.Fatalf("auth_revocable|clawback must be 0b110, got %#b", params.Flags)
+	}
+}
+
+// A partial scan must not reach the chain. On-chain there is nowhere to put the
+// caveat: get_safety returns a severity and a timestamp, so a level derived
+// from half the evidence is indistinguishable to every downstream gate from one
+// derived from all of it.
+func TestUndeterminedReportIsRefused(t *testing.T) {
+	_, err := attest.FromReport(report(func(r *mechanics.Report) {
+		r.Undetermined = true
+		r.UndeterminedChecks = []string{"reputation"}
+	}))
+	if err == nil {
+		t.Fatal("expected an undetermined report to be refused")
+	}
+	if !errors.Is(err, attest.ErrUndetermined) {
+		t.Fatalf("expected ErrUndetermined, got %v", err)
+	}
+	// The error has to say which axis is missing, or an operator cannot tell a
+	// transient outage from a misconfiguration.
+	if !strings.Contains(err.Error(), "reputation") {
+		t.Errorf("error does not name the incomplete check: %v", err)
+	}
+}
+
+// The regression this whole change exists for.
+//
+// DOGE-GA22IDJN… is clear on capability and reaches critical only through
+// reputation escalation. Before the fix, a StellarExpert outage made it scan
+// clear and that report was attestable — publishing "no issuer powers" for a
+// known scam, with nothing on-chain to indicate the reputation axis was never
+// read.
+func TestCapabilityClearWithReputationDownIsNotAttestable(t *testing.T) {
+	params, err := attest.FromReport(report(nil))
+	if err != nil {
+		t.Fatalf("a complete clear scan must still be attestable: %v", err)
+	}
+	if params.Severity != 0 {
+		t.Fatalf("expected severity 0 for the complete scan, got %d", params.Severity)
+	}
+
+	if _, err := attest.FromReport(report(func(r *mechanics.Report) {
+		r.Undetermined = true
+		r.UndeterminedChecks = []string{"reputation"}
+	})); err == nil {
+		t.Fatal("a clear severity reached without reading reputation was attestable")
 	}
 }

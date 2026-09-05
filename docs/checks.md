@@ -61,6 +61,12 @@ Verification failures are reported verbatim, including the HTTP status. "We
 could not check" and "this is fine" are different answers and must never render
 the same.
 
+That rule is repo-wide, not local to this check. It was stated here first
+because `stellar.toml` was the only source that honoured it; the two
+StellarExpert endpoints did not, and a scan during an outage claimed reputation
+had been read when it had not. Fixed, with the history in
+[the attestation run](attestation-run.md#finding-1).
+
 The same rule applies to negatives. SEP-0001 permits a currency entry whose only
 field is `toml="https://DOMAIN/.well-known/CURRENCY.toml"`, delegating the
 declaration to a separate file. Such an entry carries no code or issuer, so it
@@ -96,6 +102,30 @@ produce. **Do not re-derive it.**
 is not an observation — most legitimate assets are absent, and so is every scam
 nobody has reported yet. The check says so explicitly in its reasoning rather
 than staying silent and letting absence read as approval.
+
+**Cannot conclude anything at all when a source did not answer.** A 404 means
+the source was read and had no entry; a 429, a 5xx, or a timeout means it was
+never read. Those produce different reports: an unreachable source is recorded
+as attributed evidence carrying the failure verbatim, the finding is marked
+`undetermined`, and the report names the check on `undetermined_checks`.
+
+Severity is **not** raised to compensate. Capability stays exactly what the
+ledger says, because inventing a level Assay did not measure would be the same
+error pointed the other way. What changes is that the report states the level is
+a floor, and that `attest.FromReport` refuses to write it on-chain at all —
+`get_safety` returns a severity and a timestamp with nowhere to carry the
+caveat, so a partial scan must not become an attestation. The contract already
+handles the resulting absence correctly: `None`, and every gate fails closed.
+
+A listing that *did* arrive still escalates even if the other source is down.
+Evidence of abuse does not become less true because a second endpoint timed out,
+and `critical` is the ceiling, so nothing still missing could raise the level
+further.
+
+Note that the two sources are not interchangeable and neither is complete. When
+`BERKSHIRE-GA22QHSH…` was scanned, the directory tagged the issuer `malicious`
+while blocked-domains returned `blocked=false` for the same domain. Consulting
+only one of them would have missed a confirmed scam.
 
 ## Adding a check
 
