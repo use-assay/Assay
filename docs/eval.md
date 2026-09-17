@@ -28,7 +28,8 @@ with provenance recorded in
 
 ## Results
 
-Measured output, current as of the commit that added this file:
+Measured output from fixtures captured on 2026-08-10. `TestEval` asserts every
+row on each test run, so the table cannot drift from the code without a red test:
 
 | Subject | Asset | Base | Final | Escalated | Accountability | Mechanics |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -59,7 +60,8 @@ What Assay does *not* do is either of the two easy mistakes:
   the flag. An anonymous issuer with the same flag gets the same `medium`.
 
 `accountability: unverified` is a genuine finding, not a bug:
-`circle.com/.well-known/stellar.toml` returns 404, so reciprocal SEP-1
+`circle.com/.well-known/stellar.toml` returns 404 (fixture captured 2026-08-10;
+still 404, via a redirect to `www.circle.com`, on 2026-09-17), so reciprocal SEP-1
 verification fails by the letter of the spec. It is left uncorrected because it
 is the strongest available argument that accountability must never have been a
 severity discount — had it been one, USDC would score worse than a scam asset
@@ -107,7 +109,8 @@ Stated plainly, because an eval that hides its gaps is marketing.
   statistical claim. No precision/recall numbers are quoted, because five
   subjects cannot support them.
 - **No legitimately-clawback-enabled asset.** The set has no confirmed-good
-  regulated issuer that actually uses clawback. Sampling 2,400 live assets found
+  regulated issuer that actually uses clawback. Sampling 2,400 live assets
+  (the 2026-08-10 session, [session note](sessions/2026-08-10-mvp-core.md)) found
   541 clawback-capable ones, but they are dominated by a single tokenized-security
   issuer and none is independently confirmed legitimate. Until one is in the set,
   the claim "the model treats legitimate clawback fairly" rests on the model's

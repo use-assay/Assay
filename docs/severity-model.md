@@ -87,8 +87,10 @@ dissolved into a number.
 
 Live data makes the case better than argument does. Circle's USDC issuer
 advertises `home_domain = circle.com`, and `circle.com/.well-known/stellar.toml`
-returns **404**. By SEP-1's own definition, the single most reputable regulated
-stablecoin on Stellar currently fails reciprocal domain verification. Had
+returns **404** — on 2026-09-17 it answers with a 301 to `www.circle.com`, which
+then returns 404. By SEP-1's own definition, the single most reputable regulated
+stablecoin on Stellar failed reciprocal domain verification every time it was
+checked (2026-08-10 through 2026-09-17). Had
 accountability been wired into severity, USDC would have scored *worse* than a
 scam asset that took ten minutes to publish a valid toml.
 

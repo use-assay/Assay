@@ -70,13 +70,15 @@ carries an explicit, evaluated position on legitimate clawback use. See
 ## Status
 
 The mechanics engine, the HTTP API, and the on-chain gate all work. The gate is
-deployed to testnet, 13 real assets have been scanned and 7 attested from live
+deployed to testnet, 18 real assets have been scanned and 10 attested from live
 scans, and the round trip — scan, attest, `get_safety` — is reproducible end to
-end, verified three weeks after the first attestations were written.
+end: re-checked on 2026-09-17, a fresh scan reproduced the stored `evidence_hash`
+for every attested asset, with the limits recorded in
+[#24](https://github.com/use-assay/Assay/issues/24).
 
 Four things are worth knowing before you rely on any of it:
 
-- **Coverage is 7 attested assets.** Everything else on the network returns `None`.
+- **Coverage is 10 attested assets.** Everything else on the network returns `None`.
   That is the correct answer — an asset nobody has scanned is unknown, not safe
   — but it means the registry is not yet useful as a general lookup, and a
   correctly written gate will refuse nearly everything.

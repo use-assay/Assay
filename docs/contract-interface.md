@@ -64,7 +64,8 @@ Severity values and mechanic bit positions are **ABI** and mirror
 ### Assets are SAC addresses
 
 An asset is identified by its Stellar Asset Contract address, not by a
-code+issuer string pair. Verified live: Circle's USDC has a canonical
+code+issuer string pair. Verified live on Horizon (first recorded 2026-08-11,
+re-checked 2026-09-17): Circle's USDC has a canonical
 `contract_id` of `CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75`.
 `Address` comparison is cheap on-chain; string handling is not.
 

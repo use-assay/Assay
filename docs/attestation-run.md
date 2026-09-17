@@ -226,7 +226,9 @@ severities, bitsets, and evidence hashes match what the contract stores:
 That is the property the encoding was designed for: retrieval timestamps are
 outside the preimage, so unchanged evidence reproduces the same hash and a
 verifier can re-scan rather than trust. One of the four reproduces for a
-weaker reason than it appears — see [Finding 2](#finding-2).
+weaker reason than it appears — see [Finding 2](#finding-2), and the
+[2026-09-17 reproducibility audit](#reproducibility-audit-2026-09-17), which found
+three of the ten on-chain hashes exposed the same way.
 
 ## Fail-closed, demonstrated
 
@@ -453,12 +455,66 @@ The same class of text — timeouts carrying resolved IPs, `context deadline
 exceeded` versus a connection reset — makes any asset with an unreachable domain
 non-reproducible. USDC is unaffected: a clean `status 404` is stable.
 
+When this was written only BERKSHIRE was known to be affected. The 2026-09-17
+audit below found **three of the ten** on-chain hashes commit to raw transport
+text: BERKSHIRE, DOGE and KALE. A fourth, REPO, commits to a TOML parser error
+about the remote file, which is stable only for as long as that file is
+unchanged.
+
 **Status: not fixed, deliberately.** The fix is to normalise transport errors to
 a stable form before they enter the preimage, which changes the preimage and so
 requires an `assay-evidence-v2` version bump and re-attestation of BERKSHIRE.
 That is a larger change than it looks and is not being rushed into the same
 sitting that found it. Tracked as
 [#24](https://github.com/use-assay/Assay/issues/24).
+
+---
+
+## Reproducibility audit, 2026-09-17
+
+Every one of the ten on-chain attestations was checked three ways, from a
+single machine, on 2026-09-17:
+
+1. **An independent re-implementation of the documented encoding.** A short
+   Python script built from `docs/contract-interface.md` alone, never reading
+   the Go code, computed `evidence_hash` from each live scan's JSON report.
+2. **The scanner's own output**, `assay attestation -raw`.
+3. **What the registry stores**, read with `get_safety`.
+
+For all ten, all three agreed on severity, flags and `evidence_hash`, and each
+SAC address in [deployment.md](deployment.md) was re-derived and matched. So the
+code, the documentation and the chain agree byte for byte, and the documented
+encoding is complete enough to reimplement.
+
+One gap in the documentation surfaced along the way. The JSON report gives
+severity as a name and mechanics as a list of names, while the preimage wants
+integers; a verifier has to join the encoding section to the ABI table to
+convert them. Both are in the same document, but nothing says the join is
+needed.
+
+What did **not** go cleanly is worth more than the agreement:
+
+| Asset | Hashed `stellar.toml` evidence | Exposure |
+| --- | --- | --- |
+| `BERKSHIRE` | DNS failure text naming this host's resolver | machine-dependent (#24) |
+| `DOGE` | transport failure text | machine- and timing-dependent (#24) |
+| `KALE` | transport failure text from `chainx.site` | machine- and timing-dependent (#24) |
+| `REPO` | TOML parser error about the remote file | stable only while the site is unchanged |
+| the other six | a claim, a stable HTTP status, or no toml line | reproducible |
+
+- **Rapid scans fail transiently.** In one quick pass over all ten, three scans
+  failed outright on Horizon or DNS errors, and one KALE scan came back
+  `undetermined` because every reputation source timed out. All four
+  reproduced on a slower retry. The undetermined KALE report would have hashed
+  differently (`9595cc7d…`) — and `assay attestation` correctly refused to
+  attest it. An independent verifier must do the same: never compare the hash of
+  a report that has `undetermined: true`.
+- **`circle.com` now redirects.** On 2026-09-17,
+  `circle.com/.well-known/stellar.toml` answers 301 to `www.circle.com`, which
+  returns 404. The scanner reports the 404 against the original URL, which is
+  slightly misleading, but the recorded claim and USDC's hash are unchanged.
+
+---
 
 ---
 
@@ -659,7 +715,10 @@ its concrete motivating case.
 ## What this run does not establish
 
 - **18 assets is not a measurement.** No precision or recall number is quoted,
-  because 18 subjects cannot support one. The target is 20–25 and this document
+  because 18 subjects cannot support one. For scale: even if every one of the 18
+  were independently confirmed correctly classified, the rule of three would
+  put the 95% upper bound on the error rate near 3/18, about 17% — and that bound
+  would apply only to highly-rated assets like these, not to the network. The target is 20–25 and this document
   is not finished. This tranche also showed *how* the sample grows wrong: two of
   the planned subjects (BRAID, USDT) did not survive contact with the ledger —
   see [the third tranche](#third-tranche-2026-09-16). The next tranche verifies
@@ -686,12 +745,22 @@ its concrete motivating case.
   labelling it.
 - **Testnet.** One key can write any attestation; testnet resets and Soroban TTL
   expiry will remove these entries.
-- **Attested 2026-08-15 and 2026-09-05.** Issuers can change flags at any time.
+- **Attested 2026-08-15, 2026-09-05 and 2026-09-16** (AQUA and DOGE re-attested
+  on 2026-09-16). Issuers can change flags at any time.
   These attestations are exactly as fresh as their `attested_at`, and nothing
   refreshes them on a schedule.
 - **Four findings in the first 13 assets.** Two are fixed, one is fixed in
-  source with its redeploy pending, one is deferred with a version bump behind
-  it. The next five subjects produced no new findings in the scanner itself —
+  source, redeployed on 2026-09-16, and merged in
+  [PR #27](https://github.com/use-assay/Assay/pull/27) on 2026-09-17; one is
+  deferred with a version bump behind it. The next five subjects produced no new findings in the scanner itself —
   but three failures of the *plan*, one refused verdict, and the first live
   specimen of a known gap (#4). A quiet tranche is not automatically a
   reassuring one.
+- **Why the sample stopped at 18, not 20–25.** The 2026-09-17 session was an
+  audit, and it decided not to add assets. Two to seven more assets from the
+  same top-50 population would move the count without improving what the
+  sample can support, and that day's network was producing transient and
+  undetermined scans. The more useful next evidence is a differently drawn
+  sample — recently created, unlisted assets, where judgment is hardest — not a
+  bigger version of this one. Until then, 18 is the sample, and the statements
+  above are what it supports.

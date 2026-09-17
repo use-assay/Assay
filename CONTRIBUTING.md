@@ -68,13 +68,19 @@ Run `make fmt` before committing; CI enforces `gofmt -l` being empty.
 
 ### The merge gate
 
-CI runs a merge gate on every PR: if the PR touches a **maintainer-owned
-safety-critical path** — the [severity model](docs/severity-model.md), the
-[evidence_hash encoding](docs/contract-interface.md), the contract's
-fail-closed logic, the reputation check — or a dependency file, the gate holds
-and a maintainer reviews before merge. Docs- and test-only PRs pass
-automatically. The owned paths are listed, with reasons, in
-`scripts/merge-gate.sh`.
+CI runs a merge gate on every PR. The job fails if the PR touches a
+**maintainer-owned safety-critical path** or a dependency file, so a maintainer
+reviews it before merge. Owned paths: the [severity model](docs/severity-model.md)
+and the code implementing it, the checks, the scanner's source handling, the
+[evidence_hash encoding](docs/contract-interface.md), both contracts, the eval
+fixtures, and the gate and CI workflow themselves. They are listed, with
+reasons, in `scripts/merge-gate.sh`. PRs touching only other docs or other
+tests pass.
+
+Two limits, stated plainly. The gate checks paths, not the checklist: it
+prints the checklist but cannot tell whether a box was ticked honestly. And a
+failing job only blocks a merge if `Merge gate` is a required status check on
+`main` in the repository settings.
 
 Verify your PR against the gate before opening it:
 

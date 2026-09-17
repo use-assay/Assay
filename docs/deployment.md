@@ -32,8 +32,8 @@ deployed alongside it, wired to the registry above:
 | Upload registry wasm | `2c6b1e695fbaafa2c5134c6b57a0654371a8d9d7e90d70f3f85404a7709d53f1` |
 | Deploy registry | `ff11e24ff1d9ccd4aeea4dc258ce17d49a7b0d0c529a326f7eda9d6eff2f1c9c` |
 | `init(admin)` | `14082d78211ad494406c14d6f0bd2993a88008cb4091457a7685b3794d20ee09` |
-| Upload gate wasm | `2dc8387ff2a4ef2a24f788de627f566dfc6d60d96806f7ebffb529324056233e` |
-| Deploy gate | `a6c4f642af24f32ec116a8a8918153cacafb86f9ac33c73dfb942dce73d5897f` |
+| Upload gate wasm (original) | `2dc8387ff2a4ef2a24f788de627f566dfc6d60d96806f7ebffb529324056233e` |
+| Deploy gate (original, **superseded** — admits DOGE) | `a6c4f642af24f32ec116a8a8918153cacafb86f9ac33c73dfb942dce73d5897f` |
 | Upload gate wasm (redeploy) | `943c90b5d710499aa489b4ccb0c257447efb049859ef4401e10dc4e316e6d832` |
 | Deploy gate (redeploy, #26 fix) | `2137605713924608aa801c560a9121534efd330201e6e174a33da51190e7bfa4` |
 | Deploy gate (duplicate, unused) | `5fde49952a83f1acbe5b04a302302e0449f3348a49105d67babb8d1a5418b6c6` |
@@ -47,6 +47,18 @@ to it; `CAL5VYSW…` is the canonical instance.
 
 Any of these can be read at
 `https://stellar.expert/explorer/testnet/tx/<hash>`.
+
+### Example gate instances
+
+Three instances exist on testnet and none can be removed. Only one should be
+used. Checked on 2026-09-17 by fetching each contract's wasm and hashing it, and
+by reading the constructor argument from each deploy transaction:
+
+| Instance | Status | Wasm | Registry at construction |
+| --- | --- | --- | --- |
+| `CAL5VYSWLKG367D5IYGI57XH7EMN5PLJ4CD6K3MO2HJBYYKEKPG3NKRX` | **canonical** — use this | `ca40172e…` (severity ceiling) | `CBK4FBIH…` |
+| `CCMA2SW23WUWTJGSC2MTUZVYWROMVTT42NLPTBCOAHGM632KEMNL5N3G` | duplicate, **unused** — nothing in the repo refers to it | `ca40172e…` (identical) | `CBK4FBIH…` |
+| `CANO57JRGTATHGLM26TWYPIXERSPVI5R52H33K7ZUJGGOEOVVZA44W3U` | **superseded, do not use** — admits critical-by-reputation assets ([#26](https://github.com/use-assay/Assay/issues/26)) | `d1683a1e…` (capability mask only) | `CBK4FBIH…` |
 
 ## Attested assets
 
@@ -129,8 +141,8 @@ reproduce, either the asset changed or the attestation is not what it claims.
 
 ## Fail-closed, verified live
 
-Checked against the deployed contract before any attestation existed, and again
-afterwards using `native` XLM as a control asset that is deliberately never
+Checked against the deployed contract before any attestation existed
+(2026-08-15), again that day afterwards, and again on 2026-09-17, using `native` XLM as a control asset that is deliberately never
 attested (SAC `CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC`):
 
 | Call | Result |
@@ -144,7 +156,8 @@ disables the freshness check, so those are the most permissive arguments the
 gate accepts. It still returns `false`, because there is nothing to admit. An
 unknown asset is unknown, not safe.
 
-`is_safe` across the attested set, read live:
+`is_safe` across the attested set, read live (2026-08-15; re-read 2026-09-17 with
+identical results — `max_age_secs=0` disables freshness, so these do not expire):
 
 | Asset | `max_severity=0` | `max_severity=2` |
 | --- | --- | --- |

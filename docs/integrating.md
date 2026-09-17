@@ -75,7 +75,8 @@ Severity `0..=4` is the same information collapsed to one ordered number:
 
 **Gate on the bitset *and* on severity. Neither alone is enough.** Severity
 answers "how bad"; the bitset answers "which power". They fail in opposite
-directions, and both failures are reachable with the assets attested today:
+directions, and both failures were reachable with the assets attested as of
+2026-09-16:
 
 - **Severity alone is too coarse.** `USDC` is attested at severity `2` with
   flags `18` (`auth_revocable | domain_unverified`). A gate reading

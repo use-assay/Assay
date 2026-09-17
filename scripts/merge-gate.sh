@@ -3,7 +3,8 @@
 #
 # Fails when a pull request touches a maintainer-owned safety-critical path or
 # a dependency file, so branch protection can hold the PR for review instead of
-# letting CI green-tick it through. A PR touching only docs or tests passes.
+# letting CI green-tick it through. A PR touching only other docs or tests
+# passes; the eval tests and fixtures are owned because they pin judgment.
 #
 # This is a script rather than inline CI YAML so it can be verified offline
 # against real commit ranges before it is trusted against a real PR:
@@ -31,14 +32,43 @@ done
 # Maintainer-owned paths. Changing any of these changes what an on-chain gate
 # will admit or how a verdict is derived, so they are held for review rather
 # than auto-merged. Each entry says why it is owned.
+#
+# A directory entry covers everything beneath it. The list was audited on
+# 2026-09-17 by committing a probe change to each path and running this script:
+# the severity code, the aggregation, the scanner's error handling, this script
+# and the CI workflow all passed unreviewed before they were added here, and an
+# entry for internal/mechanics/eval.go named a file that does not exist.
 CRITICAL_PATHS=(
+    # The severity model: the rules, and the code that implements them.
     "docs/severity-model.md"                                  # the severity rules; every downstream gate trusts them
+    "internal/mechanics/severity.go"                          # severity levels and mechanic bit positions (contract ABI)
+    "internal/mechanics/mechanics.go"                         # aggregation: base vs escalated severity, undetermined
+    "internal/mechanics/check_capability.go"                  # the only check that sets base severity
+    "internal/mechanics/check_reputation.go"                  # the only check that can raise severity
+    "internal/mechanics/check_domain.go"                      # accountability and the domain_unverified bit
+    "internal/mechanics/eval_test.go"                         # pins judgment to the labelled set
+    "internal/mechanics/testdata"                             # the labelled fixtures themselves
+
+    # What a verdict is derived from: a change here moves results without
+    # touching the checks.
+    "internal/scan/scan.go"                                   # which fetch failures are fatal vs recorded as undetermined
+    "internal/stellarexpert/client.go"                        # listed vs not listed vs unreachable
+    "internal/horizon/client.go"                              # the ledger flags every severity comes from
+    "internal/sep1/sep1.go"                                   # what counts as a domain claiming an asset
+
+    # evidence_hash: any change to these bytes breaks reproducibility of every
+    # attestation already on-chain.
     "docs/contract-interface.md"                              # the documented ABI and evidence_hash encoding
-    "internal/attest/attest.go"                               # computes evidence_hash; a change here breaks reproducibility
+    "internal/attest/attest.go"                               # computes evidence_hash
+    "internal/mechanics/evidence.go"                          # text that enters hashed evidence claims
+
+    # The contracts.
     "assay-contracts/contracts/safety-registry/src/lib.rs"    # the contract's fail-closed logic and ABI constants
     "assay-contracts/contracts/example-gate/src/lib.rs"       # the published integration example
-    "internal/mechanics/check_reputation.go"                  # the only check that can raise severity
-    "internal/mechanics/eval.go"                              # pins judgment to the eval fixtures
+
+    # The gate itself. A PR must not be able to weaken the check that reviews it.
+    "scripts/merge-gate.sh"
+    ".github/workflows"
 )
 
 # Dependency files. A new Go module or Rust crate is a decision, not a side
