@@ -59,6 +59,14 @@ Severity values and mechanic bit positions are **ABI** and mirror
 `CONFISCATION_MASK = MECH_CLAWBACK_ENABLED`. Anything matching it has
 `severity >= SEVERITY_HIGH`, enforced at write time and re-checked at read time.
 
+One more value exists on the Go side and **never reaches the chain**:
+`mechanics.Unevaluated` (5) marks a report whose issuer flags were never read,
+so no capability statement exists at all. `attest.FromReport` refuses it with
+`ErrUnevaluated`, and the contract would reject it as `InvalidSeverity` anyway.
+The 0..4 table above is the complete on-chain ABI and is unchanged by this
+value's existence; it is there so that an unread flag can never be serialized
+as `SEVERITY_CLEAR`, the safest value in the table.
+
 ## Design decisions
 
 ### Assets are SAC addresses

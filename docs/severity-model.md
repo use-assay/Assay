@@ -147,6 +147,33 @@ self-documenting on-chain.
 | 3 | `high` | `auth_clawback_enabled` | Confiscate and burn a balance, without the holder's signature. |
 | 4 | `critical` | *(reputation)* | Reserved for escalation. Never produced by reading flags. |
 
+## What unevaluated means
+
+There is a fifth value on the Go side, `unevaluated`, and it is deliberately
+not a level.
+
+**`clear` means the issuer holds no powers — and that is a fact someone
+established by reading the flags.** The ledger was asked, the answer came back,
+and it said: no `auth_required`, no `auth_revocable`, no `auth_clawback_enabled`.
+
+**`unevaluated` means the flags were never read at all.** No question was
+asked, so no answer exists — including the answer "no powers". Collapsing the
+two would put the ABI's safest value on a subject nobody assessed, which is
+exactly the failure shape behind the bugs already found and fixed: a missing
+answer silently rendering as the most permissive one.
+
+In practice the live scanner cannot produce this state — it aborts the whole
+scan when Horizon cannot find the asset (`internal/scan/scan.go`), so a
+`Subject` with no flags on it only exists when one is built by hand. The value
+exists anyway, at the type level, so that nothing can accidentally attest an
+unread-flag report: such a finding carries `undetermined`, and
+`attest.FromReport` refuses it with `ErrUnevaluated`.
+
+`unevaluated` is not part of the on-chain ABI. It never serializes into an
+attestation (see [the contract interface](contract-interface.md)), and the
+contract's own range check would reject it as a second backstop. It also never
+appears in eval expectations: an eval subject always has flags to read.
+
 `auth_immutable` is deliberately **not** a level. It is not a power over
 holders; it fixes whether the power set can change. Which direction that cuts
 depends entirely on what is already set:
