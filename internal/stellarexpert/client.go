@@ -9,6 +9,7 @@
 //
 //	GET /explorer/directory/{address}                 -> curated address entry
 //	GET /explorer/directory/blocked-domains/{domain}  -> {"domain":..,"blocked":bool}
+//	GET /explorer/public/asset/{CODE-ISSUER}          -> asset metadata and rating
 //
 // This is an extraction candidate for a shared ledger-access library.
 package stellarexpert
@@ -63,6 +64,35 @@ type BlockedDomain struct {
 	Blocked bool   `json:"blocked"`
 }
 
+// Asset is the asset-level metadata published by StellarExpert. These values
+// are descriptive source data and are not an Assay score.
+type Asset struct {
+	Asset      string          `json:"asset"`
+	Code       string          `json:"code"`
+	Issuer     string          `json:"issuer"`
+	Supply     string          `json:"supply"`
+	Trustlines TrustlineCounts `json:"trustlines"`
+	Rating     AssetRating     `json:"rating"`
+}
+
+// TrustlineCounts are the counters returned by the public asset endpoint.
+type TrustlineCounts struct {
+	Total      int `json:"total"`
+	Authorized int `json:"authorized"`
+	Funded     int `json:"funded"`
+}
+
+// AssetRating is StellarExpert's component rating data.
+type AssetRating struct {
+	Age        int `json:"age"`
+	Activity   int `json:"activity"`
+	Trustlines int `json:"trustlines"`
+	Liquidity  int `json:"liquidity"`
+	Volume7d   int `json:"volume7d"`
+	Interop    int `json:"interop"`
+	Average    int `json:"average"`
+}
+
 // Client reads StellarExpert's curated data sets.
 type Client struct {
 	BaseURL   string
@@ -91,6 +121,11 @@ func (c *Client) DirectoryURL(address string) string {
 // BlockedDomainURL returns the public URL for a blocked-domain lookup.
 func (c *Client) BlockedDomainURL(domain string) string {
 	return c.BaseURL + "/explorer/directory/blocked-domains/" + url.PathEscape(domain)
+}
+
+// AssetURL returns the public URL for an asset metadata lookup.
+func (c *Client) AssetURL(code, issuer string) string {
+	return c.BaseURL + "/explorer/public/asset/" + url.PathEscape(code+"-"+issuer)
 }
 
 // Directory looks up an address in the curated directory. A nil entry with a
@@ -126,6 +161,16 @@ func (c *Client) BlockedDomain(ctx context.Context, domain string) (*BlockedDoma
 		return nil, err
 	}
 	return &b, nil
+}
+
+// Asset looks up StellarExpert's asset-level metadata and rating.
+func (c *Client) Asset(ctx context.Context, code, issuer string) (*Asset, error) {
+	var a Asset
+	found, err := c.get(ctx, c.AssetURL(code, issuer), &a)
+	if err != nil || !found {
+		return nil, err
+	}
+	return &a, nil
 }
 
 // get returns found=false on 404 rather than an error, because "not listed" is

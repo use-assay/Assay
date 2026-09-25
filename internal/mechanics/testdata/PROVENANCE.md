@@ -20,6 +20,7 @@ Each directory is one labelled subject for the eval in docs/eval.md.
 | `usdc-revocable-regulated/stellar.toml.status` | https://circle.com/.well-known/stellar.toml (HTTP 404) |
 | `usdc-revocable-regulated/blocked.json` | https://api.stellar.expert/explorer/directory/blocked-domains/circle.com |
 | `usdc-revocable-regulated/directory.json` | https://api.stellar.expert/explorer/directory/GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN |
+| `usdc-revocable-regulated/stellar-expert-asset.json` | https://api.stellar.expert/explorer/public/asset/USDC-GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN (captured 2026-09-25) |
 | `berkshire-clawback-scam/asset.json` | https://horizon.stellar.org/assets?asset_code=BERKSHIRE&asset_issuer=GA22QHSHQEHDJS2ZOINSC77XPPQ24G5EFRJGVEIZLKC5FAW3PQ5XNSDQ |
 | `berkshire-clawback-scam/account.json` | https://horizon.stellar.org/accounts/GA22QHSHQEHDJS2ZOINSC77XPPQ24G5EFRJGVEIZLKC5FAW3PQ5XNSDQ |
 | `berkshire-clawback-scam/stellar.toml.status` | https://nasdaq.finance/.well-known/stellar.toml (HTTP 000) |

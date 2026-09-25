@@ -91,12 +91,15 @@ type Subject struct {
 	// only when the source actually answered. A nil entry with a non-empty Err
 	// means the source was never reached, which is a different fact and must
 	// not be allowed to render as the same one.
-	Directory    *stellarexpert.DirectoryEntry
-	DirectoryURL string
-	DirectoryErr string
-	Blocked      *stellarexpert.BlockedDomain
-	BlockedURL   string
-	BlockedErr   string
+	Directory      *stellarexpert.DirectoryEntry
+	DirectoryURL   string
+	DirectoryErr   string
+	Blocked        *stellarexpert.BlockedDomain
+	BlockedURL     string
+	BlockedErr     string
+	ExpertAsset    *stellarexpert.Asset
+	ExpertAssetURL string
+	ExpertAssetErr string
 
 	// Holder is the account ID of a specific holder when per-trustline analysis
 	// was requested. Empty when no holder was specified; the trustline check is

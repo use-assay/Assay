@@ -112,6 +112,10 @@ func TestEitherSourceFailingIsEnough(t *testing.T) {
 			s.BlockedURL = "https://api.stellar.expert/explorer/directory/blocked-domains/example.test"
 			s.BlockedErr = "context deadline exceeded"
 		}},
+		{"asset", func(s *mechanics.Subject) {
+			s.ExpertAssetURL = "https://api.stellar.expert/explorer/public/asset/DOGE-" + testIssuer
+			s.ExpertAssetErr = "context deadline exceeded"
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if !run(t, subject(tc.mut)).Undetermined {
@@ -119,6 +123,24 @@ func TestEitherSourceFailingIsEnough(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestUnreachableAssetIsRecordedAsStellarExpertEvidence(t *testing.T) {
+	const url = "https://api.stellar.expert/explorer/public/asset/DOGE-" + testIssuer
+	rep := run(t, subject(func(s *mechanics.Subject) {
+		s.ExpertAssetURL = url
+		s.ExpertAssetErr = "status 503"
+	}))
+
+	for _, evidence := range rep.Evidence {
+		if evidence.Source == "StellarExpert" && evidence.URL == url {
+			if !strings.Contains(evidence.Claim, "not retrievable") || !strings.Contains(evidence.Claim, "503") {
+				t.Fatalf("asset failure evidence = %q", evidence.Claim)
+			}
+			return
+		}
+	}
+	t.Fatalf("no attributed evidence for unreachable asset endpoint: %+v", rep.Evidence)
 }
 
 // Severity must not be inflated to cover the gap. Inventing a level Assay did

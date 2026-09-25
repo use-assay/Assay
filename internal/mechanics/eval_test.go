@@ -58,6 +58,12 @@ func loadSubject(t *testing.T, dir string) *mechanics.Subject {
 		readJSON(t, filepath.Join(base, "blocked.json"), &b)
 		s.Blocked = &b
 	}
+	if _, err := os.Stat(filepath.Join(base, "stellar-expert-asset.json")); err == nil {
+		var a stellarexpert.Asset
+		readJSON(t, filepath.Join(base, "stellar-expert-asset.json"), &a)
+		s.ExpertAsset = &a
+		s.ExpertAssetURL = "https://api.stellar.expert/explorer/public/asset/" + stat.AssetCode + "-" + stat.AssetIssuer
+	}
 	return s
 }
 
@@ -192,6 +198,39 @@ func TestAccountabilityNeverChangesSeverity(t *testing.T) {
 	if repV.Accountability == repA.Accountability {
 		t.Errorf("accountability should differ between the two subjects, both = %v",
 			repV.Accountability)
+	}
+}
+
+func TestAssetSignalsAreAttributedAndDoNotChangeSeverity(t *testing.T) {
+	s := loadSubject(t, "usdc-revocable-regulated")
+	s.ExpertAsset = &stellarexpert.Asset{
+		Supply:     "3675875656477148",
+		Trustlines: stellarexpert.TrustlineCounts{Total: 2431888, Authorized: 2431888, Funded: 703330},
+		Rating:     stellarexpert.AssetRating{Age: 10, Activity: 10, Trustlines: 10, Liquidity: 10, Volume7d: 10, Interop: 4, Average: 9},
+	}
+	s.ExpertAssetURL = "https://api.stellar.expert/explorer/public/asset/USDC-" + s.Asset.Issuer
+
+	rep, err := mechanics.NewEngine().Run(context.Background(), s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Base != mechanics.Medium || rep.Severity != mechanics.Medium {
+		t.Fatalf("asset metadata changed severity: base=%v severity=%v", rep.Base, rep.Severity)
+	}
+	var found bool
+	for _, evidence := range rep.Evidence {
+		if evidence.URL == s.ExpertAssetURL {
+			found = true
+			if evidence.Source != "StellarExpert" {
+				t.Errorf("asset evidence source = %q, want StellarExpert", evidence.Source)
+			}
+			if !strings.Contains(evidence.Claim, "average=9") || !strings.Contains(evidence.Claim, "supply=3675875656477148") {
+				t.Errorf("asset evidence omitted raw metadata: %q", evidence.Claim)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("asset metadata was not surfaced as evidence")
 	}
 }
 
