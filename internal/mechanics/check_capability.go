@@ -39,7 +39,15 @@ func (c CapabilityCheck) Run(_ context.Context, s *Subject) (Finding, error) {
 	}
 
 	if s.Stat == nil {
-		f.Reasoning = "Asset not found on the ledger, so no issuer capability could be read."
+		// The flags were never read, so no capability statement exists — not
+		// even the statement that there is nothing to state. Reporting Clear
+		// here would put the ABI's safest value on a subject nobody assessed
+		// (see #23, #25 for that failure shape), so the finding carries the
+		// Unevaluated sentinel and marks the report undetermined, which makes
+		// it non-attestable at attest.FromReport.
+		f.Severity = Unevaluated
+		f.Undetermined = true
+		f.Reasoning = "Asset not found on the ledger, so no issuer capability could be read: the capability axis is unevaluated, not clear."
 		return f, nil
 	}
 

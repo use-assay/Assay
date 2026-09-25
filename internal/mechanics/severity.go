@@ -47,6 +47,21 @@ const (
 	// reading flags; it means a curated source has affirmatively identified
 	// this issuer or its domain as malicious.
 	Critical Severity = 4
+
+	// Unevaluated means the issuer's authorization flags were never read, so
+	// no capability statement exists. It is deliberately not zero: a nil
+	// Subject.Stat must not render as Clear, because Clear is the safest value
+	// in the ABI and "could not assess" would then be indistinguishable from
+	// "assessed and found no powers". Unevaluated is not a severity level and
+	// is not part of the on-chain ABI: attest.FromReport refuses any report
+	// carrying it (ErrUnevaluated), and the safety-registry contract rejects
+	// severity > SEVERITY_CRITICAL at write time as a second backstop. It
+	// exists so that an unread flag can never be serialized as a permissive
+	// answer. See docs/severity-model.md, "What unevaluated means".
+	//
+	// The value 5 is chosen to sit outside the ABI's 0..4 range so that
+	// accidental serialization is detectable rather than silently meaningful.
+	Unevaluated Severity = 5
 )
 
 // String returns the lowercase level name used in the API and UI.
@@ -62,6 +77,8 @@ func (s Severity) String() string {
 		return "high"
 	case Critical:
 		return "critical"
+	case Unevaluated:
+		return "unevaluated"
 	default:
 		return "unknown"
 	}

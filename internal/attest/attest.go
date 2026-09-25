@@ -50,6 +50,14 @@ var ErrInconsistent = errors.New("attest: attestation violates the confiscation 
 // written on-chain at all.
 var ErrUndetermined = errors.New("attest: scan is undetermined, so there is nothing to attest")
 
+// ErrUnevaluated reports a report whose capability axis was never evaluated:
+// it carries mechanics.Unevaluated, not a severity level. This is the specific
+// case behind most undetermined reports — the flags were never read — and it
+// is refused with its own error so a caller can tell "no capability statement
+// exists" apart from "a source was down". Like ErrUndetermined, it means there
+// is nothing to attest.
+var ErrUnevaluated = errors.New("attest: capability axis was never evaluated, so there is no severity to attest")
+
 // FromReport derives the attest() arguments for a scan report.
 //
 // It re-checks the confiscation invariant that the contract enforces at write
@@ -59,6 +67,16 @@ var ErrUndetermined = errors.New("attest: scan is undetermined, so there is noth
 func FromReport(rep *mechanics.Report) (Params, error) {
 	flags := uint32(rep.Mechanics)
 	sev := uint32(rep.Severity)
+
+	// An unevaluated capability axis is refused before the generic undetermined
+	// refusal so the canonical case (a Subject whose Stat was never loaded)
+	// reports the specific error. The sentinel is deliberately outside the
+	// ABI's 0..4 range: the contract would reject it as InvalidSeverity, but
+	// catching it here names the actual problem and keeps it out of the
+	// preimage entirely.
+	if rep.Severity == mechanics.Unevaluated || rep.Base == mechanics.Unevaluated {
+		return Params{}, fmt.Errorf("%w: capability was never derived from issuer flags", ErrUnevaluated)
+	}
 
 	// A partial scan is refused outright rather than attested with the severity
 	// it managed to reach. On-chain there is nowhere to put the caveat: a
