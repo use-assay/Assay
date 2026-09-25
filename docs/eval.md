@@ -154,3 +154,49 @@ Stated plainly, because an eval that hides its gaps is marketing.
 
 Point 3 is the discipline. Any check can find `auth_revocable: true`. The reason
 to have a check is that it knows when that is fine.
+
+## Dataset labeling and refresh
+
+The machine-readable record for this set is
+[`internal/mechanics/testdata/manifest.json`](../internal/mechanics/testdata/manifest.json).
+The fixture metadata is CC-BY-4.0 under the dataset directory's
+[`LICENSE`](../internal/mechanics/testdata/LICENSE); Assay source code remains
+Apache-2.0 and upstream payloads remain subject to their providers' terms.
+
+### Label criteria
+
+- **Legitimate** is a control-group label for an asset with a documented issuer
+  identity or a known regulated/compliance use case, supported by the captured
+  source records. It does not mean risk-free: USDC is legitimate while its
+  `auth_revocable` capability still produces `medium` severity.
+- **Trap** requires affirmative captured reputation evidence identifying the
+  issuer or domain as malicious or unsafe, or a documented impersonation case
+  with corroborating source records. Capability alone is never enough for this
+  label.
+- Severity and accountability are measured independently from the label. The
+  expected base severity comes from issuer capability; final severity may only
+  rise through reputation escalation; accountability records reciprocal SEP-1
+  verification and is never a legitimacy discount.
+
+### Point-in-time refresh pipeline
+
+1. Re-fetch every URL in the manifest and record one UTC capture date for the
+  refresh.
+2. Store only payloads whose current provider terms permit redistribution. For
+  uncertain StellarExpert or issuer material, retain the URL and derived
+  annotation rather than adding a new raw copy.
+3. Rebuild the expected labels and metrics from the captured files, update the
+  manifest atomically, and run `make test`.
+4. Review the diff for source attribution, update `PROVENANCE.md`, and publish a
+  new manifest version. Never overwrite an old capture without preserving its
+  date and provenance.
+
+### Disputed labels and corrections
+
+A disputed label is not silently edited. Open a correction with the fixture
+name, disputed field, evidence URL, observed date, and proposed replacement.
+After review, preserve the original annotation in the change history, update
+the manifest and provenance together, add or adjust the evaluation assertion,
+and record the reason for the correction. A disagreement without sufficient
+evidence remains `unresolved` in the correction record and is excluded from
+claims about model accuracy.
