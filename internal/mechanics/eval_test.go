@@ -104,6 +104,15 @@ func TestEval(t *testing.T) {
 			wantAccount:  mechanics.AccountabilityVerified,
 		},
 		{
+			dir: "xrp-clear-unlocked",
+			why: "the unlocked counterpart to SHX: no auth flags, but auth_immutable is UNSET, so the " +
+				"issuer may add freeze or clawback later. The mutability finding must report that " +
+				"without moving base severity off clear.",
+			wantBase:     mechanics.Clear,
+			wantSeverity: mechanics.Clear,
+			wantAccount:  mechanics.AccountabilityVerified,
+		},
+		{
 			dir: "usdc-revocable-regulated",
 			why: "a real regulated stablecoin that legitimately uses auth_revocable. It must report " +
 				"freeze-capable (medium) on the strength of the flag alone: not discounted to clear " +
@@ -200,7 +209,8 @@ func TestAccountabilityNeverChangesSeverity(t *testing.T) {
 func TestConfiscationImpliesHigh(t *testing.T) {
 	eng := mechanics.NewEngine()
 	for _, dir := range []string{
-		"aqua-clear-verified", "shx-clear-flagslocked", "usdc-revocable-regulated",
+		"aqua-clear-verified", "shx-clear-flagslocked", "xrp-clear-unlocked",
+		"usdc-revocable-regulated",
 		"berkshire-clawback-scam", "doge-noflags-scam",
 	} {
 		rep, err := eng.Run(context.Background(), loadSubject(t, dir))
