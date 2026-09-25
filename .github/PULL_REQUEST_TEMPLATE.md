@@ -6,12 +6,13 @@
 
 <!-- One or two sentences. What behavior changes for a caller or a gate? -->
 
-## The gate will hold this PR if it touches maintainer-owned paths
+## The gate will flag this PR if it touches maintainer-owned paths
 
-Those paths are listed in `scripts/merge-gate.sh`. If the gate fails on your PR,
-that is the gate working: a maintainer reviews the change, and an intentional,
-reviewed change merges via administrator bypass, which leaves the review in the
-PR history.
+Those paths are listed in `scripts/merge-gate.sh`. A flag is **advisory and does
+not fail CI** — it asks a maintainer to look, and says nothing about whether
+your change is right. Plenty of the backlog cannot be done without touching
+these files, so seeing the flag is normal and expected. The finding appears in
+the Merge gate job summary.
 
 ## Checklist
 
