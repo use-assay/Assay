@@ -2,11 +2,14 @@ package sep1_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/use-assay/assay/internal/attest"
+	"github.com/use-assay/assay/internal/mechanics"
 	"github.com/use-assay/assay/internal/sep1"
 )
 
@@ -90,6 +93,61 @@ func TestURLFor(t *testing.T) {
 		if got := sep1.URLFor(in); got != want {
 			t.Errorf("URLFor(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestCanonicalFailureIgnoresHostDetails(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		a    error
+		b    error
+		want string
+	}{
+		{"connection refused", errors.New("dial tcp first.example:443: connect: connection refused"), errors.New("dial tcp second.example:443: connect: connection refused"), sep1.FailureConnectionRefused},
+		{"dns", errors.New("dial tcp: lookup first.example: no such host"), errors.New("dial tcp: lookup second.example: no such host"), sep1.FailureDNS},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := sep1.CanonicalFailure(tc.a); got != tc.want {
+				t.Fatalf("first error category = %q, want %q", got, tc.want)
+			}
+			if got := sep1.CanonicalFailure(tc.b); got != tc.want {
+				t.Fatalf("second error category = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestInjectedFetchErrorsProduceTheSameEvidenceHash(t *testing.T) {
+	hashes := make([]string, 0, 2)
+	for _, message := range []string{
+		"dial tcp first.example:443: connect: connection refused",
+		"dial tcp second.example:443: connect: connection refused",
+	} {
+		f := sep1.NewFetcher()
+		f.HTTP = &http.Client{Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
+			return nil, errors.New(message)
+		})}
+		_, err := f.Fetch(context.Background(), "issuer.example")
+		if err == nil {
+			t.Fatal("Fetch succeeded for injected transport failure")
+		}
+		report := &mechanics.Report{
+			Asset:          mechanics.Asset{Code: "VELO", Issuer: issuer},
+			Accountability: mechanics.AccountabilityUnverified,
+			Evidence: []mechanics.Evidence{{
+				Source: "stellar.toml",
+				URL:    "stellar.toml",
+				Claim:  "not retrievable: " + sep1.CanonicalFailure(err),
+			}},
+		}
+		params, err := attest.FromReport(report)
+		if err != nil {
+			t.Fatalf("FromReport: %v", err)
+		}
+		hashes = append(hashes, params.EvidenceHash)
+	}
+	if hashes[0] != hashes[1] {
+		t.Fatalf("same failure class produced different evidence hashes: %s != %s", hashes[0], hashes[1])
 	}
 }
 

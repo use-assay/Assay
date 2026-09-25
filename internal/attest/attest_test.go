@@ -83,7 +83,7 @@ func TestPreimageMatchesTheDocumentedEncoding(t *testing.T) {
 
 	// Assembled from the format table in docs/contract-interface.md.
 	want := strings.Join([]string{
-		"assay-evidence-v1",
+		"assay-evidence-v2",
 		"asset\t" + rep.Asset.String(),
 		"severity\t0",
 		"base_severity\t0",

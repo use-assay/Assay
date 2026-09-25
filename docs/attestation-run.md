@@ -462,12 +462,19 @@ text: BERKSHIRE, DOGE and KALE. A fourth, REPO, commits to a TOML parser error
 about the remote file, which is stable only for as long as that file is
 unchanged.
 
-**Status: not fixed, deliberately.** The fix is to normalise transport errors to
-a stable form before they enter the preimage, which changes the preimage and so
-requires an `assay-evidence-v2` version bump and re-attestation of BERKSHIRE.
-That is a larger change than it looks and is not being rushed into the same
-sitting that found it. Tracked as
-[#24](https://github.com/use-assay/Assay/issues/24).
+**Migration.** `assay-evidence-v1` attestations preserve the historical raw
+transport text and are verifiable only with v1 rules. In particular, the
+historical BERKSHIRE hash remains
+`dc2bbf0849dfc001c44be9a5de4fe19c39300e5c4735c9ed3311b3d214171a0d`.
+Operators must either retain the v1 preimage and verifier for that attestation,
+or re-attest BERKSHIRE under v2 and record both hashes side by side. New v2
+preimages use only closed canonical failure categories such as `dns-failure`,
+`connection-refused`, `tls-failure`, `timeout`, and `status N`; raw transport
+errors remain diagnostics and are excluded from the hash.
+
+The committed vectors under `internal/attest/testdata/vectors/` include a v1
+legacy profile and v2 profile bytes plus their SHA-256 digests. The version line
+is part of each preimage, so a verifier must select the matching ruleset.
 
 ---
 

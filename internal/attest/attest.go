@@ -24,7 +24,7 @@ import (
 // PreimageVersion is the first line of every canonical preimage. It is part of
 // what gets hashed, so a future encoding change cannot silently produce a hash
 // that a verifier would compare against v1 bytes.
-const PreimageVersion = "assay-evidence-v1"
+const PreimageVersion = "assay-evidence-v2"
 
 // Params is one attest() call: the arguments, and nothing else.
 //

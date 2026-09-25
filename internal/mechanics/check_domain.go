@@ -2,7 +2,10 @@ package mechanics
 
 import (
 	"context"
+	"errors"
 	"fmt"
+
+	"github.com/use-assay/assay/internal/sep1"
 )
 
 // DomainCheck performs reciprocal SEP-1 domain verification.
@@ -51,6 +54,10 @@ func (c DomainCheck) Run(_ context.Context, s *Subject) (Finding, error) {
 	if s.Toml == nil {
 		acc = AccountabilityUnverified
 		f.Mechanics = MechDomainUnverified
+		failure := s.TomlFailure
+		if failure == "" {
+			failure = sep1.CanonicalFailure(errors.New(s.TomlErr))
+		}
 		f.Reasoning = fmt.Sprintf(
 			"The issuer advertises home_domain %q, but its stellar.toml could not be "+
 				"read (%s). The domain claim is unverified: anyone can set home_domain "+
@@ -58,8 +65,8 @@ func (c DomainCheck) Run(_ context.Context, s *Subject) (Finding, error) {
 			domain, s.TomlErr)
 		f.Evidence = append(f.Evidence, Evidence{
 			Source: "stellar.toml",
-			URL:    s.TomlURL,
-			Claim:  "not retrievable: " + s.TomlErr,
+			URL:    "stellar.toml",
+			Claim:  "not retrievable: " + failure,
 			// The toml never answered, so this carries the attempt time, not a
 			// retrieval time — and says so programmatically.
 			RetrievedAt: s.TomlAttemptedAt,
