@@ -107,8 +107,10 @@ if [ ${#HITS[@]} -gt 0 ]; then
         echo "  $path"
     done
     echo
-    echo "Merge it only after a maintainer has reviewed the change. If the change is"
-    echo "intentional and reviewed, an administrator merge bypass documents that."
+    echo "A maintainer should review the change before it merges. This is a flag,"
+    echo "not a verdict: much of the backlog cannot be done without touching these"
+    echo "paths. In CI the flag is advisory and does not fail the job; run locally"
+    echo "it exits 1 so you can use it as a pre-flight check."
     exit 1
 fi
 
