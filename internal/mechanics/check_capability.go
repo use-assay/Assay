@@ -63,9 +63,6 @@ func (c CapabilityCheck) Run(_ context.Context, s *Subject) (Finding, error) {
 			"without your signature (auth_clawback_enabled)")
 		f.Severity = High
 	}
-	if flags.AuthImmutable {
-		mech |= MechFlagsLocked
-	}
 	f.Mechanics = mech
 
 	f.Evidence = append(f.Evidence, Evidence{
@@ -86,24 +83,10 @@ func (c CapabilityCheck) Run(_ context.Context, s *Subject) (Finding, error) {
 	}
 
 	// auth_immutable is not a power over holders; it fixes whether the power
-	// set can change. Which direction that cuts depends entirely on what is
-	// already set, so it is stated explicitly rather than scored.
-	switch {
-	case flags.AuthImmutable && flags.AuthClawbackEnabled:
-		b.WriteString("These flags are locked permanently (auth_immutable): the " +
-			"confiscation power can never be given up.")
-	case flags.AuthImmutable:
-		b.WriteString("These flags are locked permanently (auth_immutable), so the " +
-			"issuer can never add confiscation or freeze powers later.")
-	case flags.AuthClawbackEnabled:
-		b.WriteString("The flags are not locked, so the issuer may change them, but " +
-			"clawback already applies to trustlines opened now.")
-	default:
-		b.WriteString("The flags are not locked (auth_immutable is unset), so the " +
-			"issuer may add freeze or confiscation powers in future. Under CAP-0035 " +
-			"that would not reach trustlines that already exist, but it would apply " +
-			"to any trustline opened after the change.")
-	}
+	// set can change. It is not scored here and it is not described here:
+	// MutabilityCheck reports it as its own finding, so that a reader gets the
+	// durability of this verdict without this reasoning having to carry a
+	// conditional it cannot score.
 	f.Reasoning = b.String()
 
 	return f, nil

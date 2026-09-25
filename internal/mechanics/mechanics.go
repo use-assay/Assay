@@ -215,6 +215,7 @@ type Engine struct {
 func NewEngine() *Engine {
 	return &Engine{Checks: []Check{
 		CapabilityCheck{},
+		MutabilityCheck{},
 		DomainCheck{},
 		ReputationCheck{},
 	}}

@@ -155,8 +155,8 @@ depends entirely on what is already set:
   be added.
 - Locked with clawback — permanent. The power can never be given up.
 
-Assay states this in the reasoning rather than scoring it, because a single
-number cannot carry a conditional.
+Assay reports this as its own finding — [`mutability`](checks.md#mutability) —
+rather than scoring it, because a single number cannot carry a conditional.
 
 ## What severity does not tell you
 

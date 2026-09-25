@@ -22,6 +22,7 @@ with provenance recorded in
 | --- | --- | --- |
 | `AQUA` | legitimate | No auth flags at all, reciprocal domain. The baseline: the model must not manufacture risk. |
 | `SHX` | legitimate | No auth flags **and** `auth_immutable`. Tests that flag-locking is not mistaken for danger. |
+| `XRP` (fchain.io) | legitimate | The unlocked counterpart to SHX: no auth flags, `auth_immutable` **unset**. Capability is clear, but the flag set can still change, so the `mutability` finding must report that without moving severity. |
 | `USDC` (Circle) | **legitimate, uses the flags** | The critical case. A real regulated stablecoin that legitimately uses `auth_revocable`. |
 | `BERKSHIRE` (nasdaq.finance) | trap | Impersonation asset with clawback. Confiscation capability *and* confirmed-bad reputation. |
 | `DOGE` (darkpool.digital) | trap | Known scam carrying **no auth flags**. The case that justifies the second axis. |
@@ -35,6 +36,7 @@ row on each test run, so the table cannot drift from the code without a red test
 | --- | --- | --- | --- | --- | --- | --- |
 | aqua-clear-verified | `AQUA` | clear | **clear** | false | verified | — |
 | shx-clear-flagslocked | `SHX` | clear | **clear** | false | verified | `auth_immutable` |
+| xrp-clear-unlocked | `XRP` | clear | **clear** | false | verified | — |
 | usdc-revocable-regulated | `USDC` | medium | **medium** | false | unverified | `auth_revocable`, `domain_unverified` |
 | berkshire-clawback-scam | `BERKSHIRE` | high | **critical** | true | unverified | `auth_revocable`, `auth_clawback_enabled`, `domain_unverified`, `blocklisted` |
 | doge-noflags-scam | `DOGE` | clear | **critical** | true | unverified | `domain_unverified`, `blocklisted` |
@@ -101,12 +103,25 @@ never does. SHX additionally carries `auth_immutable`, and the reasoning
 correctly frames that as a safety property: the issuer can never add clawback
 later.
 
+### XRP — the unlocked counterpart to SHX
+
+`clear`, not escalated, and `auth_immutable` unset.
+
+SHX and XRP are the two halves of the `mutability` check. Both have no
+authorization flags, so `capability` is `clear` for each. The difference is that
+SHX's flag set is locked — clawback can never be added — while XRP's is not, so
+the issuer may add freeze or confiscation later. That difference never enters
+severity: `base: clear` and `severity: clear` for both, because `auth_immutable`
+is not a power over holders. It is reported as its own finding instead, and this
+subject is here so the unlocked branch is pinned by the eval rather than only by
+a unit test.
+
 ## Coverage gaps
 
 Stated plainly, because an eval that hides its gaps is marketing.
 
-- **Five subjects.** Enough to pin the judgment boundaries, not enough for a
-  statistical claim. No precision/recall numbers are quoted, because five
+- **Six subjects.** Enough to pin the judgment boundaries, not enough for a
+  statistical claim. No precision/recall numbers are quoted, because six
   subjects cannot support them.
 - **No legitimately-clawback-enabled asset.** The set has no confirmed-good
   regulated issuer that actually uses clawback. Sampling 2,400 live assets
