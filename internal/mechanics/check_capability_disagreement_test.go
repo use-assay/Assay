@@ -39,6 +39,20 @@ func capFinding(t *testing.T, rep *mechanics.Report) mechanics.Finding {
 	return mechanics.Finding{}
 }
 
+// mutFinding isolates the mutability finding from a report. Since #171 the
+// auth_immutable lock statement lives on the mutability finding, so the
+// agreement tests below read it there rather than on the capability finding.
+func mutFinding(t *testing.T, rep *mechanics.Report) mechanics.Finding {
+	t.Helper()
+	for _, f := range rep.Findings {
+		if f.Check == "mutability" {
+			return f
+		}
+	}
+	t.Fatalf("no mutability finding in report: %+v", rep.Findings)
+	return mechanics.Finding{}
+}
+
 // runEngine is the same engine the live scanner runs.
 func runEngine(t *testing.T, s *mechanics.Subject) *mechanics.Report {
 	t.Helper()
@@ -151,15 +165,18 @@ func TestAgreedSourcesKeepSeverityAndOneEvidenceEntry(t *testing.T) {
 // auth_immutable is not a power over a holder, so it is not resolved against
 // the holder like the power flags are. It is claimed only when both copies
 // agree it is set: asserting a lock one source contradicts would hand the
-// reader a reassurance the evidence does not support.
+// reader a reassurance the evidence does not support. Since #171 the lock
+// statement itself lives on the mutability finding — which now reads the same
+// reconciled flag set the capability check resolves severity from — so the
+// agreement rule is asserted there.
 func TestAuthImmutableIsClaimedOnlyWhenBothSourcesAgree(t *testing.T) {
 	t.Run("both agree it is set, so the lock is stated", func(t *testing.T) {
 		s := loadDisagreement(t)
 		s.Stat.Flags.AuthImmutable = true
 		s.Issuer.Flags.AuthImmutable = true
 
-		f := capFinding(t, runEngine(t, s))
-		if !strings.Contains(f.Reasoning, "locked permanently") {
+		f := mutFinding(t, runEngine(t, s))
+		if !strings.Contains(f.Reasoning, "locked (auth_immutable is set)") {
 			t.Fatalf("auth_immutable agreed by both sources but the lock is not stated: %q", f.Reasoning)
 		}
 	})
@@ -179,8 +196,8 @@ func TestAuthImmutableIsClaimedOnlyWhenBothSourcesAgree(t *testing.T) {
 			s := loadDisagreement(t)
 			tc.set(s)
 
-			f := capFinding(t, runEngine(t, s))
-			if strings.Contains(f.Reasoning, "locked permanently") {
+			f := mutFinding(t, runEngine(t, s))
+			if strings.Contains(f.Reasoning, "locked (auth_immutable is set)") {
 				t.Fatalf("lock asserted although %s contradicts it: %q", tc.name, f.Reasoning)
 			}
 			// The cautious reading, whatever the clawback branch: the flags are
