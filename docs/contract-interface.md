@@ -94,7 +94,23 @@ and is at or below `max_severity`. Every other path returns `false`: never
 attested, stale, too severe, or internally inconsistent.
 
 The safe answer is the default, so a caller who gets the arguments wrong blocks
-rather than admits.### Staleness is the caller's policy
+rather than admits.
+
+### Registry upgradeability is intentionally not an upgrade path
+
+The registry is designed as immutable-with-redeploy rather than
+upgradeable-with-admin. A new contract instance is a new address, a new binding,
+and therefore a migration event for every consumer; the codebase records that
+cost in [deployment.md](deployment.md) instead of pretending a contract can be
+patched in place. This is intentional: a single admin key already writes every
+attestation, so introducing in-place upgrade authority would widen the trusted
+surface rather than reduce it. The policy decision is therefore explicit: the
+registry is not upgraded by admin action; a required fix means a redeployment
+and a consumer migration. The example gate follows the same pattern: it stores
+its severity ceiling, freshness window and refused-mechanics mask at
+construction time so the deployment state is visible and reviewable.
+
+### Staleness is the caller's policy
 
 `attested_at` is exposed and `max_age_secs` is a parameter rather than a
 contract constant. Assay does not silently serve stale safety, and it does not
