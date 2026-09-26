@@ -32,6 +32,7 @@ this document introduces no new severity semantics, and neither does the code:
 | `severity` | `Report.Severity` | final severity, after escalation |
 | `undetermined` | `Report.Undetermined` | whether a source it depends on failed to answer |
 | `undetermined_checks` | `Report.UndeterminedChecks` | which checks could not complete |
+| `evidence` | `Report.Evidence` | the attributed evidence the scan consumed |
 
 The full bit set is carried rather than only the capability bits, so an
 observation taken today can answer a question about a bit Assay does not compare
@@ -138,6 +139,64 @@ Attribution is derived from the pair, not guessed from the size of the move:
 This is what makes a reputation-only move impossible to attribute to capability:
 the capability test reads base severity, and base did not move.
 
+## Evidence-only changes
+
+A third thing can move between two observations: the evidence itself, while the
+verdict holds still. A domain goes dark and a toml claim becomes a fetch error;
+a transport failure changes its wording. Neither moves a capability bit or a
+severity, so `Added`, `Removed` and `SeverityTransition` all correctly report
+"no change" — and a verifier re-scanning and comparing `evidence_hash` values
+sees a mismatch with no explanation.
+
+That is the class that produced the reproducibility problem in
+[attestation run, Finding 2](attestation-run.md#finding-2) (#24): BERKSHIRE,
+DOGE and KALE carry transport-error text in their on-chain evidence, so a
+verifier on a different machine gets different bytes for an asset that did not
+change. The gap between those two statements — the asset changed, our view of
+it changed — is what this detector fills.
+
+`EvidenceTransition` compares the two observations' evidence sets **by source**
+and reports, per source, one of:
+
+- **added** — the source answered in the later observation and not before.
+- **removed** — the source became unavailable. This is distinguished from a
+  change deliberately: a source going silent is a fact about *our view*; a
+  source changing its answer is a fact about the asset. They must not render
+  the same.
+- **changed** — the source answered both times and its answer moved.
+
+Within a changed event, the `failure_text` flag marks the #24 signature
+explicitly: **both sides are recorded fetch failures and only the wording of
+the failure moved**. Nothing about the asset is known to have changed; only
+the transport's description of its own failure did. This is exactly the case
+whose only consequence is hash non-reproduction, so it is named rather than
+left for the reader to notice that two "changed" claims are both failures.
+
+### What it refuses to do
+
+- **A verdict change is not an evidence-only change.** If base severity, the
+  mechanics bitset, or final severity moved, the result is marked
+  `verdict_changed` and carries no events — the capability and severity
+  transitions are the story, and an evidence diff beside them would read as
+  the headline. Reputation escalation counts: the final verdict moving is a
+  verdict change even with the capability base holding still.
+- **An undetermined observation yields no comparison**, exactly as for the
+  capability detectors: what the missing source would have said must not be
+  read as unchanged.
+- **The comparison is keyed on source, one entry per source** — the shape
+  every check currently produces. A check emitting two claims from one source
+  would be a new decision to make deliberately, not something this comparison
+  should guess at; first-wins is documented rather than silently extended.
+
+Failure classification is deliberately narrow: a claim is treated as a recorded
+fetch failure only when it carries the `not retrievable:` prefix the checks
+actually write. Classifying arbitrary natural-language claims would be a
+heuristic in a judgment path, which this package does not do.
+
+The detector is a pure function like the rest of the package: no storage, no
+I/O, no mutation of its inputs. Events are sorted by source so the same pair
+always renders the same way.
+
 ## On-demand versus stored
 
 **Decision: observations are stored; transitions are computed on demand.**
@@ -215,7 +274,8 @@ Do not implement detection here. Do not build storage here.
   are tested where they live:
   `go test ./internal/temporal/ -run Addition -v`,
   `go test ./internal/temporal/ -run Removal -v`,
-  `go test ./internal/temporal/ -run Severity -v`.
+  `go test ./internal/temporal/ -run Severity -v`,
+  `go test ./internal/temporal/ -run Evidence -v`.
 
 ## Verification
 

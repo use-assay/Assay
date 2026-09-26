@@ -30,3 +30,17 @@ Each directory is one labelled subject for the eval in docs/eval.md.
 | `doge-noflags-scam/stellar.toml.status` | https://darkpool.digital/.well-known/stellar.toml (HTTP 000) |
 | `doge-noflags-scam/blocked.json` | https://api.stellar.expert/explorer/directory/blocked-domains/darkpool.digital |
 | `doge-noflags-scam/directory.json` | https://api.stellar.expert/explorer/directory/GA22IDJNHUMC3XKUCCBFNTQIJOUBWINC5GCXHLJ2V6KZ3OWAXCULNQ7P |
+
+## Synthetic fixtures
+
+`synthetic-flag-disagreement/` is **not a real capture**. It is derived from
+`usdc-revocable-regulated/` (captured 2026-08-10) with one field deliberately
+altered: `account.json` reports `auth_clawback_enabled: true` while
+`asset.json` reports it false.
+
+No such asset was observed. Horizon's two copies of the issuer flags agreed on
+every asset checked live on 2026-09-25, which is precisely why the disagreement
+path needs a constructed fixture — it cannot be captured from the network. It
+exercises the resolution rule in `reconcileFlags`, and is driven by
+`check_capability_disagreement_test.go` rather than by `TestEval`, so the
+labelled eval set continues to contain only real captures.
