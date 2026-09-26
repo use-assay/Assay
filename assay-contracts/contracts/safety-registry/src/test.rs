@@ -152,26 +152,86 @@ fn init_is_single_shot() {
     assert_eq!(err, Ok(Error::AlreadyInitialized));
 }
 
-/// attest() requires auth from the admin set at init time. A non-admin
-/// caller must be rejected. This test does not use mock_all_auths(), so
-/// require_auth() on the admin address actually enforces.
+/// attest() requires auth from the admin set at init time. An unsigned call
+/// without authorization must be rejected.
 #[test]
-fn attest_rejects_unauthorized_caller() {
+fn attest_rejects_no_auth_caller() {
     let env = Env::default();
     let contract_id = env.register(SafetyRegistry, ());
     let client = SafetyRegistryClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
     client.init(&admin);
 
-    let _caller = Address::generate(&env);
     let asset = Address::generate(&env);
 
     let err = client
         .try_attest(&asset, &SEVERITY_CLEAR, &0, &hash(&env))
-        .expect_err("non-admin must be rejected");
+        .expect_err("unauthorized call must be rejected");
 
-    // The error type is SDK-internal (soroban_sdk::Error), not our contract
-    // Error enum. The important property is that it is an error at all: a
-    // non-admin caller must not be able to write attestations.
     assert!(err.is_err());
 }
+
+/// attest() signed by a valid account that is NOT the admin must fail.
+/// This exercises require_auth against an explicit non-admin signer.
+#[test]
+fn attest_rejects_wrong_signer_caller() {
+    use soroban_sdk::testutils::MockAuth;
+    use soroban_sdk::testutils::MockAuthInvoke;
+    use soroban_sdk::IntoVal;
+
+    let env = Env::default();
+    let contract_id = env.register(SafetyRegistry, ());
+    let client = SafetyRegistryClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    client.init(&admin);
+
+    let wrong_caller = Address::generate(&env);
+    let asset = Address::generate(&env);
+
+    let err = client
+        .mock_auths(&[MockAuth {
+            address: &wrong_caller,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "attest",
+                args: (&asset, SEVERITY_CLEAR, 0u32, hash(&env)).into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .try_attest(&asset, &SEVERITY_CLEAR, &0, &hash(&env))
+        .expect_err("non-admin signer must be rejected");
+
+    assert!(err.is_err());
+}
+
+/// attest() signed explicitly by the admin account succeeds.
+#[test]
+fn attest_accepts_admin_caller() {
+    use soroban_sdk::testutils::MockAuth;
+    use soroban_sdk::testutils::MockAuthInvoke;
+    use soroban_sdk::IntoVal;
+
+    let env = Env::default();
+    let contract_id = env.register(SafetyRegistry, ());
+    let client = SafetyRegistryClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    client.init(&admin);
+
+    let asset = Address::generate(&env);
+
+    client
+        .mock_auths(&[MockAuth {
+            address: &admin,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "attest",
+                args: (&asset, SEVERITY_CLEAR, 0u32, hash(&env)).into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .attest(&asset, &SEVERITY_CLEAR, &0, &hash(&env));
+
+    let got = client.get_safety(&asset).expect("attestation should exist");
+    assert_eq!(got.severity, SEVERITY_CLEAR);
+}
+
