@@ -175,3 +175,39 @@ fn attest_rejects_unauthorized_caller() {
     // non-admin caller must not be able to write attestations.
     assert!(err.is_err());
 }
+
+#[test]
+fn successful_admin_transfer() {
+    let (env, client, _admin) = setup();
+    let new_admin = Address::generate(&env);
+    let asset = Address::generate(&env);
+
+    client.transfer_admin(&new_admin);
+    client.accept_admin();
+
+    // New admin can attest successfully
+    client.attest(&asset, &SEVERITY_CLEAR, &0, &hash(&env));
+    assert_eq!(client.get_safety(&asset).unwrap().severity, SEVERITY_CLEAR);
+}
+
+#[test]
+fn transfer_before_init_fails() {
+    let env = Env::default();
+    let contract_id = env.register(SafetyRegistry, ());
+    let client = SafetyRegistryClient::new(&env, &contract_id);
+    let new_admin = Address::generate(&env);
+
+    let err = client
+        .try_transfer_admin(&new_admin)
+        .expect_err("transfer before init must fail");
+    assert_eq!(err, Ok(Error::NotInitialized));
+}
+
+#[test]
+fn accept_without_pending_admin_fails() {
+    let (env, client, _) = setup();
+    let err = client
+        .try_accept_admin()
+        .expect_err("accept without pending transfer must fail");
+    assert_eq!(err, Ok(Error::NoPendingAdmin));
+}

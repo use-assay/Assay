@@ -157,6 +157,16 @@ func TestEval(t *testing.T) {
 			wantEscalated: true,
 			wantAccount:   mechanics.AccountabilityUnverified,
 		},
+		{
+			dir: "doge-disagreeing-sources",
+			why: "two consumed sources disagree about the same issuer (blocked-domains returns blocked=false " +
+				"for darkpool.digital while the directory tags the issuer malicious/unsafe): escalation must " +
+				"still fire from the source that did flag",
+			wantBase:      mechanics.Clear,
+			wantSeverity:  mechanics.Critical,
+			wantEscalated: true,
+			wantAccount:   mechanics.AccountabilityUnverified,
+		},
 	}
 
 	eng := mechanics.NewEngine()
@@ -226,7 +236,7 @@ func TestConfiscationImpliesHigh(t *testing.T) {
 	for _, dir := range []string{
 		"aqua-clear-verified", "shx-clear-flagslocked", "xrp-clear-unlocked",
 		"usdc-revocable-regulated",
-		"berkshire-clawback-scam", "doge-noflags-scam",
+		"berkshire-clawback-scam", "doge-noflags-scam", "doge-disagreeing-sources",
 	} {
 		rep, err := eng.Run(context.Background(), loadSubject(t, dir))
 		if err != nil {
