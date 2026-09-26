@@ -15,8 +15,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -34,6 +37,45 @@ const maxBody = 1 << 20 // 1 MiB
 // ErrNoDomain reports that the issuer account advertises no home_domain, so
 // there is nothing to verify against.
 var ErrNoDomain = errors.New("sep1: issuer has no home_domain")
+
+const (
+	FailureDNS               = "dns-failure"
+	FailureConnectionRefused = "connection-refused"
+	FailureTLS               = "tls-failure"
+	FailureTimeout           = "timeout"
+	FailureUnknown           = "unknown-failure"
+)
+
+// CanonicalFailure returns a closed, machine-independent category for hashing.
+// The original error remains available through Error().
+func CanonicalFailure(err error) string {
+	if err == nil {
+		return FailureUnknown
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return FailureTimeout
+	}
+	lower := strings.ToLower(err.Error())
+	if errors.Is(err, syscall.ECONNREFUSED) || strings.Contains(lower, "connection refused") {
+		return FailureConnectionRefused
+	}
+	if strings.Contains(lower, "tls") {
+		return FailureTLS
+	}
+	if strings.Contains(lower, "no such host") || strings.Contains(lower, "name resolution") {
+		return FailureDNS
+	}
+	if i := strings.Index(lower, "status "); i >= 0 {
+		fields := strings.Fields(lower[i+len("status "):])
+		if len(fields) > 0 {
+			if code, parseErr := strconv.Atoi(fields[0]); parseErr == nil {
+				return "status " + strconv.Itoa(code)
+			}
+		}
+	}
+	return FailureUnknown
+}
 
 // Currency is one [[CURRENCIES]] entry.
 type Currency struct {
@@ -127,7 +169,7 @@ func (f *Fetcher) Fetch(ctx context.Context, domain string) (*Doc, error) {
 
 	resp, err := f.HTTP.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("sep1: fetch %s: %w", target, err)
+		return nil, fmt.Errorf("sep1: %s: fetch %s: %w", CanonicalFailure(err), target, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 

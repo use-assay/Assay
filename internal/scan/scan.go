@@ -114,6 +114,7 @@ func (s *Scanner) Subject(ctx context.Context, a mechanics.Asset) (*mechanics.Su
 		doc, err := s.Toml.Fetch(ctx, domain)
 		if err != nil {
 			sub.TomlErr = err.Error()
+			sub.TomlFailure = sep1.CanonicalFailure(err)
 			// A failed fetch has no completion time, so the attempt time is
 			// what failure evidence carries — explicitly labelled as an attempt
 			// by Evidence.Attempted.

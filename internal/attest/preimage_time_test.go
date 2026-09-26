@@ -49,7 +49,7 @@ func TestPreimageExcludesTimestamps(t *testing.T) {
 		}
 		key := strings.SplitN(got, "\t", 2)[0]
 		switch key {
-		case "assay-evidence-v1", "asset", "severity", "base_severity",
+		case "assay-evidence-v2", "asset", "severity", "base_severity",
 			"escalated", "mechanics", "accountability", "evidence":
 		default:
 			t.Errorf("preimage record key %q is not in the documented format table", key)

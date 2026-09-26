@@ -102,9 +102,11 @@ type Subject struct {
 	// did not, and is reported verbatim rather than being smoothed over.
 	// A resolved Doc carries its own FetchedAt; TomlAttemptedAt is when the
 	// fetch was attempted, used for failure evidence where no Doc exists.
-	Toml            *sep1.Doc
-	TomlURL         string
-	TomlErr         string
+	Toml    *sep1.Doc
+	TomlURL string
+	TomlErr string
+	// TomlFailure is canonical for hashing; TomlErr remains verbatim for UI diagnostics.
+	TomlFailure     string
 	TomlAttemptedAt time.Time
 
 	// Directory and Blocked are the curated reputation signals. Each has an Err
@@ -148,6 +150,7 @@ type Subject struct {
 	// evidence carries the time of the source it came from, and the report
 	// carries the time the subject assembly began.
 	ScannedAt time.Time
+	FetchedAt time.Time
 }
 
 // HomeDomain returns the issuer's advertised home_domain, if any.
