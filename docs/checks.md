@@ -36,6 +36,48 @@ issuer can actually do.
 `auth_immutable` is not scored here: whether the flag set can still change is a
 separate, first-class finding — see [`mutability`](#mutability).
 
+### The two copies of the flags
+
+Horizon publishes the issuer's authorization flags **twice**: on the `/assets`
+record and on the issuer's `/accounts` record. They are separate ingestion
+paths. The check reads both and compares them; it never classifies from one
+copy silently.
+
+Field names were verified independently on both endpoints (2026-09-25): both
+carry the identical four booleans — `auth_required`, `auth_revocable`,
+`auth_immutable`, `auth_clawback_enabled`. Across USDC, AQUA, USDZ, DOGE, KALE,
+BERKSHIRE and SHX — assets spanning the whole severity range — the two copies
+agreed in every case. Agreement is the normal state, which is exactly why a
+disagreement is worth surfacing rather than averaging away.
+
+**The resolution rule, stated normatively: on disagreement, take the more
+dangerous of the two readings.** A power is counted as held if either copy
+reports it. The two copies can disagree only if one is wrong or stale
+(indexer lag, a flag change mid-scan), and a single scan cannot tell which.
+Resolving in the holder's favour would let a stale copy *lower* a severity —
+the one direction this project never resolves. Severity stays capability-only:
+this rule decides which capability reading is used, and adds no reputation
+input.
+
+`auth_immutable` is resolved the other way, and deliberately. It is not a power
+over a holder, and its reasoning is cited protectively as well as as an
+aggravator ("the issuer can never add confiscation later"). Asserting the lock
+when one copy contradicts it would hand the reader a reassurance the evidence
+does not support, so the lock is claimed only when **both** copies agree it is
+set; on disagreement the report keeps the cautious reading that the flags may
+still change.
+
+On disagreement the report says so explicitly, and each source is attributed
+with its own URL — the `/assets` record and the `/accounts` record — so a
+reader can re-fetch both copies and settle the question themselves. The second
+copy is cited **only** when the two disagree: attaching it to every report
+would restate a fact already in evidence and would change the `evidence_hash`
+of every attestation already written for an asset whose copies agree, which is
+all of them. The disagreement path is exercised by
+`check_capability_disagreement_test.go` against
+`testdata/synthetic-flag-disagreement/` — a deliberately mismatched fixture,
+not a live capture, because no disagreeing asset has ever been observed.
+
 **Cannot conclude:** whether the issuer will ever use the power; whether an
 existing holder is exposed (clawback is inherited at trustline creation, so this
 answers the prospective question only); or anything about who the issuer is.

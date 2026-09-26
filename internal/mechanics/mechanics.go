@@ -148,9 +148,6 @@ type Subject struct {
 	// evidence carries the time of the source it came from, and the report
 	// carries the time the subject assembly began.
 	ScannedAt time.Time
-
-	// FetchedAt is the legacy subject-level timestamp preserved for callers and
-	// tests constructing Subjects without granular source timestamps.
 	FetchedAt time.Time
 }
 

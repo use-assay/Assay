@@ -26,7 +26,8 @@ evidence rather than to a number someone typed.
 Attestations are written by `assay attestation`, which derives severity, the
 mechanic bitset, and the evidence hash from a live scan, and `make attest`,
 which submits them. No path through either lets a hand-written severity reach
-the contract.
+the contract. The pipeline that would keep the registry continuously current
+is designed (not yet built) in [attestation-writer.md](attestation-writer.md).
 
 ## ABI
 
@@ -93,14 +94,14 @@ and is at or below `max_severity`. Every other path returns `false`: never
 attested, stale, too severe, or internally inconsistent.
 
 The safe answer is the default, so a caller who gets the arguments wrong blocks
-rather than admits.
-
-### Staleness is the caller's policy
+rather than admits.### Staleness is the caller's policy
 
 `attested_at` is exposed and `max_age_secs` is a parameter rather than a
 contract constant. Assay does not silently serve stale safety, and it does not
-guess how fresh is fresh enough — a DEX listing gate and a large settlement have
-very different tolerances. `max_age_secs = 0` opts out explicitly.
+guess how fresh is fresh enough — a DEX listing gate and a large settlement
+have very different tolerances. `max_age_secs = 0` opts out explicitly.
+Recommended bands with reasoning, the re-attestation cadence, and consumer
+guidance are in [freshness.md](freshness.md).
 
 [freshness.md](freshness.md) is the guidance for picking a value: what changes
 under an attestation, how fast (measured, not guessed), and defensible windows
