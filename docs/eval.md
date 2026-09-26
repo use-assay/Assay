@@ -7,10 +7,13 @@ and does escalation fire only on reputation?
 
 **A check whose judgment is not evaluated against this set does not ship.**
 
-Run it with `make test`. The eval is `TestEval` in
-[`internal/mechanics/eval_test.go`](../internal/mechanics/eval_test.go); it runs
-from fixtures with no network access, so a result cannot drift because a
-third-party API had a bad day.
+Run it with `make test`. The eval is `TestEval` (aggregate) and
+`TestEvalPerCheck` (per check) in
+[`internal/mechanics/eval_test.go`](../internal/mechanics/eval_test.go); both
+run from fixtures with no network access, so a result cannot drift because a
+third-party API had a bad day. Their labels live in one place,
+[`internal/eval`](../internal/eval), so the aggregate and per-check
+expectations cannot describe different runs.
 
 ## The labelled set
 
@@ -115,6 +118,59 @@ severity: `base: clear` and `severity: clear` for both, because `auth_immutable`
 is not a power over holders. It is reported as its own finding instead, and this
 subject is here so the unlocked branch is pinned by the eval rather than only by
 a unit test.
+
+## Per-check evaluation
+
+An aggregate verdict can be right for the wrong reason: if the capability check
+says `clear` and reputation escalates the asset to `critical`, the report is
+correct while the capability error stays invisible. `TestEvalPerCheck` therefore
+compares every finding against its own label, not only the total.
+
+A check that could not conclude is compared against an **undetermined** label,
+not against a severity, because an undetermined finding makes no severity claim.
+A subject whose findings and labels do not line up — including one with no
+per-check labels at all — is reported as **partially evaluated**, never silently
+passed. `TestEvalPerCheckReportsPartialLabels` and
+`TestEvalPerCheckDetectsWrongExpectation` pin those two failure modes.
+
+Measured per-check output (same fixtures as the table above):
+
+| Subject | capability | mutability | sep1-domain | reputation |
+| --- | --- | --- | --- | --- |
+| aqua-clear-verified | clear | clear | verified | clear (escalation axis) |
+| shx-clear-flagslocked | clear | clear, `auth_immutable` | verified | clear (escalation axis) |
+| xrp-clear-unlocked | clear | clear | verified | clear (escalation axis) |
+| usdc-revocable-regulated | medium, `auth_revocable` | clear | unverified, `domain_unverified` | clear (escalation axis) |
+| berkshire-clawback-scam | high, `auth_revocable`, `auth_clawback_enabled` | clear | unverified, `domain_unverified` | critical, `blocklisted` |
+| doge-noflags-scam | clear | clear | unverified, `domain_unverified` | critical, `blocklisted` |
+
+The `reputation` column carries the escalation axis: its finding is `clear` with
+`escalation: true` when nothing is flagged, and `critical` with `blocklisted`
+when it is. That is the one check permitted to escalate, and per-check labels
+keep it from hiding a capability error.
+
+## Cross-version comparison
+
+Any change to a check can move verdicts, and pass/fail against fixed
+expectations cannot show *what* moved. `make eval-record` writes the full
+classifier output for the corpus — per subject, per check, with the bound check
+set — to [`docs/eval-baseline.json`](eval-baseline.json), tagged with the scanner
+version. `make eval-compare` records the current run and diffs it against that
+baseline, reporting severity, mechanic and evidence movements separately.
+
+Three rules keep the diff honest:
+
+- A subject **undetermined** in either run is reported as undetermined and
+excluded from the movement counts: an answer that was never reached cannot have
+moved.
+- A subject present in only one run is reported as **added** or **removed**, not
+dropped.
+- Evidence movements are reported as digests of the sorted claims, excluding
+retrieval times, so a re-run of unchanged evidence does not show as a change.
+
+Run `make eval-record` when the output is intended to change; the baseline is
+what a reviewer diffs against. Run `make eval-compare STRICT=1` to make any
+movement fail the command.
 
 ## Coverage gaps
 
