@@ -320,4 +320,15 @@ fn is_safe_property_exhaustive() {
     }
 }
 
+/// Contract error discriminants are ABI documented in docs/integrating.md and live results.
+/// Reordering or changing discriminants silently breaks integrator error handling.
+#[test]
+fn error_code_values_are_abi() {
+    assert_eq!(Error::AlreadyInitialized as u32, 1);
+    assert_eq!(Error::NotInitialized as u32, 2);
+    assert_eq!(Error::InvalidSeverity as u32, 3);
+    assert_eq!(Error::InconsistentAttestation as u32, 4);
+}
+
+
 
