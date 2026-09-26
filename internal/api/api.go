@@ -8,6 +8,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/use-assay/assay/internal/horizon"
@@ -79,6 +80,22 @@ func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	var maxAgeWindow time.Duration
+	var hasMaxAge bool
+	maxAgeParam := r.URL.Query().Get("max_age_secs")
+	if maxAgeParam == "" {
+		maxAgeParam = r.URL.Query().Get("max_age")
+	}
+	if maxAgeParam != "" {
+		secs, err := strconv.ParseInt(maxAgeParam, 10, 64)
+		if err != nil || secs < 0 {
+			writeJSON(w, http.StatusBadRequest, errorBody{"invalid max_age_secs"})
+			return
+		}
+		maxAgeWindow = time.Duration(secs) * time.Second
+		hasMaxAge = true
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
@@ -94,6 +111,10 @@ func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
 		// between "safe" and "we could not check".
 		writeJSON(w, http.StatusBadGateway, errorBody{"scan failed: " + err.Error()})
 		return
+	}
+
+	if hasMaxAge {
+		report.EvaluateFreshness(time.Now().UTC(), maxAgeWindow)
 	}
 
 	writeJSON(w, http.StatusOK, report)
