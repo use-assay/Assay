@@ -175,3 +175,48 @@ fn attest_rejects_unauthorized_caller() {
     // non-admin caller must not be able to write attestations.
     assert!(err.is_err());
 }
+
+/// Re-attestation with identical evidence moves only the timestamp.
+///
+/// This test pins the property observed on AQUA and DOGE on 2026-09-16:
+/// both reproduced their original hashes exactly and only the timestamp moved.
+/// It is the property that makes routine re-attestation safe.
+#[test]
+fn re_attestation_identical_evidence_moves_only_timestamp() {
+    let (env, client, _) = setup();
+    let asset = Address::generate(&env);
+
+    // First attestation at time 1000
+    env.ledger().set_timestamp(1_000);
+    client.attest(&asset, &SEVERITY_MEDIUM, &MECH_AUTH_REVOCABLE, &hash(&env));
+
+    let first = client
+        .get_safety(&asset)
+        .expect("first attestation should exist");
+    let first_attested_at = first.attested_at;
+    let first_severity = first.severity;
+    let first_flags = first.flags;
+    let first_evidence_hash = first.evidence_hash.clone();
+
+    // Advance time
+    env.ledger().set_timestamp(1_000 + 86_400); // +24h
+
+    // Re-attest with identical severity, flags, and evidence hash
+    client.attest(&asset, &SEVERITY_MEDIUM, &MECH_AUTH_REVOCABLE, &hash(&env));
+
+    let second = client
+        .get_safety(&asset)
+        .expect("second attestation should exist");
+
+    // Only attested_at should change; everything else identical
+    assert_eq!(second.severity, first_severity, "severity unchanged");
+    assert_eq!(second.flags, first_flags, "flags unchanged");
+    assert_eq!(
+        second.evidence_hash, first_evidence_hash,
+        "evidence_hash unchanged"
+    );
+    assert!(
+        second.attested_at > first_attested_at,
+        "attested_at advanced"
+    );
+}
