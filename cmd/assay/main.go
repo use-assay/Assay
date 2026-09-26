@@ -21,6 +21,9 @@ import (
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "assay:", err)
+		if e, ok := err.(interface{ ExitCode() int }); ok {
+			os.Exit(e.ExitCode())
+		}
 		os.Exit(1)
 	}
 }
@@ -29,6 +32,8 @@ func usage() {
 	fmt.Fprint(os.Stderr, `usage:
   assay scan CODE-ISSUER          classify one asset and print the report as JSON
   assay attestation CODE-ISSUER   print the on-chain attest() arguments for one asset
+  assay verify [-max-age=24h] CODE-ISSUER
+                                  re-scan, recompute hash, and verify on-chain agreement
   assay history [-guarantee] [-raw] CODE-ISSUER
                                   print the asset's observation history
   assay serve [-addr]             serve the HTTP API and UI
@@ -48,6 +53,8 @@ func run(args []string) error {
 		return runScan(args[1:])
 	case "attestation":
 		return runAttestation(args[1:])
+	case "verify":
+		return runVerify(args[1:])
 	case "history":
 		return runHistory(args[1:])
 	case "serve":

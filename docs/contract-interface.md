@@ -148,6 +148,7 @@ base_severity	N
 escalated	true|false
 mechanics	N
 accountability	unknown|unverified|verified
+checks	ID1,ID2,...
 evidence	SOURCE	URL	CLAIM
 ```
 
