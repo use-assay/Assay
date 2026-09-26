@@ -69,13 +69,24 @@ These are the bugs that matter most, because someone acts on the output.
 
 Pre-1.0. Only `main` is supported; there are no maintained release branches.
 
-## The contract is not deployed
+## Deployment status
 
-`assay-contracts` has no testnet or pubnet deployment, so there is nothing live
-to attack. Please still report design flaws in the ABI or the gate logic — the
-value of finding them is highest before anything depends on them.
+`assay-contracts` is deployed to Stellar testnet. Pubnet is not deployed.
 
-Known limitations, documented rather than hidden, in
-[docs/contract-interface.md](docs/contract-interface.md#not-done-yet):
-a single admin key can write any attestation, and `evidence_hash` has no
-canonical encoding yet, so it cannot currently be verified independently.
+Current addresses live in [docs/deployment.md](docs/deployment.md); this file
+does not repeat them so they cannot drift out of sync.
+
+The canonical gate instance is `CAL5VYSWLKG367D5IYGI57XH7EMN5PLJ4CD6K3MO2HJBYYKEKPG3NKRX`.
+A superseded gate instance, `CANO57JRGTATHGLM26TWYPIXERSPVI5R52H33K7ZUJGGOEOVVZA44W3U`,
+is known-flawed: it admits critical-by-reputation assets (see [#26](../../issues/26)).
+Do not treat reports against the superseded instance as new findings against
+the canonical one.
+
+Please still report design flaws in the ABI or the gate logic — the value of
+finding them is highest before more depends on them.
+
+Known limitations, documented in
+[docs/contract-interface.md](docs/contract-interface.md#not-done-yet): a
+single admin key can write any attestation. `evidence_hash` has a canonical
+encoding, specified in [#11](../../issues/11) and verified byte-for-byte
+against the documented procedure on 2026-09-17.
