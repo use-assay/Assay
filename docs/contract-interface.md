@@ -151,6 +151,18 @@ accountability	unknown|unverified|verified
 evidence	SOURCE	URL	CLAIM
 ```
 
+A report that binds its check set is written as `assay-evidence-v2`, which adds
+one line after `accountability`:
+
+```
+checks	ID,ID,...        (the checks the engine ran, sorted)
+```
+
+Reports produced before check-set binding carry no `checks` line and are still
+written as `v1`, so an attestation already on-chain keeps reproducing its hash.
+A verifier reads a report with no bound check set as *unknown*, never as
+complete.
+
 with one `evidence` line per attributed claim, sorted bytewise. Inside any
 field, `\` becomes `\\`, tab becomes `\t`, newline `\n`, carriage return `\r`.
 That escaping is load-bearing rather than tidy: a claim embeds third-party text
@@ -167,6 +179,27 @@ cost is that the hash cannot distinguish a fresh confirmation from a stale one
 
 The version line is inside the hash, so a future encoding change cannot produce
 bytes a verifier would silently compare against v1.
+
+#### The preimage binds the check set
+
+`Engine.Run` iterates whatever checks the engine holds, and a report used to
+commit only to the aggregate result and the evidence lines. That made a scan run
+with a check removed indistinguishable from one where the check ran and found
+nothing: DOGE is critical solely through the reputation check, so removing that
+check turns it clear, and a two-check engine could produce a report that hashed
+like a three-check one whose removed check changed no other field.
+
+The v2 encoding closes that: the sorted check IDs the engine ran are part of the
+preimage, so a report from a smaller engine hashes differently. `Report.CheckSet`
+carries them, and `attest.VerifyCheckSet` compares a report's bound set against
+the set a verifier expects, returning `CheckSetIncomplete` with the absent checks
+named — not a generic mismatch. A report with no bound set is
+`CheckSetUnknown`, reported as such rather than failed, because there is nothing
+to compare.
+
+The check-set binding is a v2 rather than an amendment to v1 deliberately: an
+attestation written under v1 omitted the check set entirely, and re-hashing it
+under a changed v1 format would break every existing attestation.
 
 ## Not done yet
 

@@ -7,10 +7,13 @@ and does escalation fire only on reputation?
 
 **A check whose judgment is not evaluated against this set does not ship.**
 
-Run it with `make test`. The eval is `TestEval` in
-[`internal/mechanics/eval_test.go`](../internal/mechanics/eval_test.go); it runs
-from fixtures with no network access, so a result cannot drift because a
-third-party API had a bad day.
+Run it with `make test`. The eval is `TestEval` (aggregate) and
+`TestEvalPerCheck` (per check) in
+[`internal/mechanics/eval_test.go`](../internal/mechanics/eval_test.go); both
+run from fixtures with no network access, so a result cannot drift because a
+third-party API had a bad day. Their labels live in one place,
+[`internal/eval`](../internal/eval), so the aggregate and per-check
+expectations cannot describe different runs.
 
 ## The labelled set
 
@@ -131,6 +134,59 @@ is not a power over holders. It is reported as its own finding instead, and this
 subject is here so the unlocked branch is pinned by the eval rather than only by
 a unit test.
 
+## Per-check evaluation
+
+An aggregate verdict can be right for the wrong reason: if the capability check
+says `clear` and reputation escalates the asset to `critical`, the report is
+correct while the capability error stays invisible. `TestEvalPerCheck` therefore
+compares every finding against its own label, not only the total.
+
+A check that could not conclude is compared against an **undetermined** label,
+not against a severity, because an undetermined finding makes no severity claim.
+A subject whose findings and labels do not line up — including one with no
+per-check labels at all — is reported as **partially evaluated**, never silently
+passed. `TestEvalPerCheckReportsPartialLabels` and
+`TestEvalPerCheckDetectsWrongExpectation` pin those two failure modes.
+
+Measured per-check output (same fixtures as the table above):
+
+| Subject | capability | mutability | sep1-domain | reputation |
+| --- | --- | --- | --- | --- |
+| aqua-clear-verified | clear | clear | verified | clear (escalation axis) |
+| shx-clear-flagslocked | clear | clear, `auth_immutable` | verified | clear (escalation axis) |
+| xrp-clear-unlocked | clear | clear | verified | clear (escalation axis) |
+| usdc-revocable-regulated | medium, `auth_revocable` | clear | unverified, `domain_unverified` | clear (escalation axis) |
+| berkshire-clawback-scam | high, `auth_revocable`, `auth_clawback_enabled` | clear | unverified, `domain_unverified` | critical, `blocklisted` |
+| doge-noflags-scam | clear | clear | unverified, `domain_unverified` | critical, `blocklisted` |
+
+The `reputation` column carries the escalation axis: its finding is `clear` with
+`escalation: true` when nothing is flagged, and `critical` with `blocklisted`
+when it is. That is the one check permitted to escalate, and per-check labels
+keep it from hiding a capability error.
+
+## Cross-version comparison
+
+Any change to a check can move verdicts, and pass/fail against fixed
+expectations cannot show *what* moved. `make eval-record` writes the full
+classifier output for the corpus — per subject, per check, with the bound check
+set — to [`docs/eval-baseline.json`](eval-baseline.json), tagged with the scanner
+version. `make eval-compare` records the current run and diffs it against that
+baseline, reporting severity, mechanic and evidence movements separately.
+
+Three rules keep the diff honest:
+
+- A subject **undetermined** in either run is reported as undetermined and
+excluded from the movement counts: an answer that was never reached cannot have
+moved.
+- A subject present in only one run is reported as **added** or **removed**, not
+dropped.
+- Evidence movements are reported as digests of the sorted claims, excluding
+retrieval times, so a re-run of unchanged evidence does not show as a change.
+
+Run `make eval-record` when the output is intended to change; the baseline is
+what a reviewer diffs against. Run `make eval-compare STRICT=1` to make any
+movement fail the command.
+
 ## Coverage gaps
 
 Stated plainly, because an eval that hides its gaps is marketing.
@@ -169,3 +225,49 @@ Stated plainly, because an eval that hides its gaps is marketing.
 
 Point 3 is the discipline. Any check can find `auth_revocable: true`. The reason
 to have a check is that it knows when that is fine.
+
+## Dataset labeling and refresh
+
+The machine-readable record for this set is
+[`internal/mechanics/testdata/manifest.json`](../internal/mechanics/testdata/manifest.json).
+The fixture metadata is CC-BY-4.0 under the dataset directory's
+[`LICENSE`](../internal/mechanics/testdata/LICENSE); Assay source code remains
+Apache-2.0 and upstream payloads remain subject to their providers' terms.
+
+### Label criteria
+
+- **Legitimate** is a control-group label for an asset with a documented issuer
+  identity or a known regulated/compliance use case, supported by the captured
+  source records. It does not mean risk-free: USDC is legitimate while its
+  `auth_revocable` capability still produces `medium` severity.
+- **Trap** requires affirmative captured reputation evidence identifying the
+  issuer or domain as malicious or unsafe, or a documented impersonation case
+  with corroborating source records. Capability alone is never enough for this
+  label.
+- Severity and accountability are measured independently from the label. The
+  expected base severity comes from issuer capability; final severity may only
+  rise through reputation escalation; accountability records reciprocal SEP-1
+  verification and is never a legitimacy discount.
+
+### Point-in-time refresh pipeline
+
+1. Re-fetch every URL in the manifest and record one UTC capture date for the
+  refresh.
+2. Store only payloads whose current provider terms permit redistribution. For
+  uncertain StellarExpert or issuer material, retain the URL and derived
+  annotation rather than adding a new raw copy.
+3. Rebuild the expected labels and metrics from the captured files, update the
+  manifest atomically, and run `make test`.
+4. Review the diff for source attribution, update `PROVENANCE.md`, and publish a
+  new manifest version. Never overwrite an old capture without preserving its
+  date and provenance.
+
+### Disputed labels and corrections
+
+A disputed label is not silently edited. Open a correction with the fixture
+name, disputed field, evidence URL, observed date, and proposed replacement.
+After review, preserve the original annotation in the change history, update
+the manifest and provenance together, add or adjust the evaluation assertion,
+and record the reason for the correction. A disagreement without sufficient
+evidence remains `unresolved` in the correction record and is excluded from
+claims about model accuracy.
