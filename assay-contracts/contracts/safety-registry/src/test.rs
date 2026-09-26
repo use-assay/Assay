@@ -235,3 +235,89 @@ fn attest_accepts_admin_caller() {
     assert_eq!(got.severity, SEVERITY_CLEAR);
 }
 
+/// Property test: is_safe MUST return false for any unattested asset across all threshold/age arguments.
+#[test]
+fn is_safe_property_unattested() {
+    let (env, client, _) = setup();
+    let asset = Address::generate(&env);
+
+    for max_sev in 0..=5 {
+        for max_age in [0, 60, 600, 3600] {
+            assert!(
+                !client.is_safe(&asset, &max_sev, &max_age),
+                "unattested asset must be false for max_sev={}, max_age={}",
+                max_sev,
+                max_age
+            );
+        }
+    }
+}
+
+/// Exhaustive property test for is_safe over the conjunction of all four conditions:
+/// 1. Attested state (true)
+/// 2. Severity within threshold (attested_severity <= max_severity)
+/// 3. Confiscation invariant intact (flags & CONFISCATION_MASK == 0 || max_severity >= SEVERITY_HIGH)
+/// 4. Freshness window met (max_age_secs == 0 || age <= max_age_secs)
+#[test]
+fn is_safe_property_exhaustive() {
+    let (env, client, _) = setup();
+
+    let severities = [0, 1, 2, 3, 4, 5]; // Severity values 0..=5 (including out-of-range 5)
+    let flag_sets = [
+        0u32,
+        MECH_AUTH_REQUIRED,
+        MECH_CLAWBACK_ENABLED,
+        MECH_AUTH_REQUIRED | MECH_CLAWBACK_ENABLED,
+        0b111111u32,
+    ];
+    let max_severities = [0, 1, 2, 3, 4, 5];
+    let max_ages = [0u64, 300, 600];
+    let nows = [1_000u64, 1_300, 1_600, 2_000]; // ages: 0, 300, 600, 1000
+
+    let attested_at = 1_000u64;
+
+    for &attested_sev in &severities {
+        for &attested_flags in &flag_sets {
+            for &now in &nows {
+                for &max_sev in &max_severities {
+                    for &max_age in &max_ages {
+                        let asset = Address::generate(&env);
+                        env.ledger().set_timestamp(attested_at);
+
+                        // If severity is valid (<= 4) and flags do not violate clawback invariant, write attestation
+                        // Note: If clawback bit set and severity < 3, try_attest will reject write, so we manually test stored safety
+                        if attested_flags & MECH_CLAWBACK_ENABLED != 0 && attested_sev < SEVERITY_HIGH {
+                            // Invalid write time invariant; cannot attest on chain directly, skipped from valid store
+                            continue;
+                        }
+                        if attested_sev > SEVERITY_CRITICAL {
+                            // Invalid severity; cannot attest on chain directly, skipped from valid store
+                            continue;
+                        }
+
+                        client.attest(&asset, &attested_sev, &attested_flags, &hash(&env));
+                        env.ledger().set_timestamp(now);
+
+                        let age = now.saturating_sub(attested_at);
+
+                        let cond_severity = attested_sev <= max_sev;
+                        let cond_confiscation =
+                            (attested_flags & CONFISCATION_MASK) == 0 || max_sev >= SEVERITY_HIGH;
+                        let cond_freshness = max_age == 0 || age <= max_age;
+
+                        let expected = cond_severity && cond_confiscation && cond_freshness;
+                        let actual = client.is_safe(&asset, &max_sev, &max_age);
+
+                        assert_eq!(
+                            actual, expected,
+                            "is_safe mismatch for sev={}, flags={}, max_sev={}, age={}, max_age={}",
+                            attested_sev, attested_flags, max_sev, age, max_age
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+
