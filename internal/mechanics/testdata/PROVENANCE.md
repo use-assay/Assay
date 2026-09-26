@@ -35,3 +35,8 @@ Each directory is one labelled subject for the eval in docs/eval.md.
 | `xrp-clear-unlocked/stellar.toml` | https://fchain.io/.well-known/stellar.toml (captured 2026-09-25) |
 | `xrp-clear-unlocked/blocked.json` | https://api.stellar.expert/explorer/directory/blocked-domains/fchain.io (captured 2026-09-25) |
 | `xrp-clear-unlocked/directory.json` | https://api.stellar.expert/explorer/directory/GBXRPL45NPHCVMFFAYZVUVFFVKSIZ362ZXFP7I2ETNQ3QKZMFLPRDTD5 (captured 2026-09-25) |
+| `doge-disagreeing-sources/asset.json` | https://horizon.stellar.org/assets?asset_code=DOGE&asset_issuer=GA22IDJNHUMC3XKUCCBFNTQIJOUBWINC5GCXHLJ2V6KZ3OWAXCULNQ7P (captured 2026-09-22) |
+| `doge-disagreeing-sources/account.json` | https://horizon.stellar.org/accounts/GA22IDJNHUMC3XKUCCBFNTQIJOUBWINC5GCXHLJ2V6KZ3OWAXCULNQ7P (captured 2026-09-22) |
+| `doge-disagreeing-sources/stellar.toml.status` | https://darkpool.digital/.well-known/stellar.toml (captured 2026-09-22, HTTP 000) |
+| `doge-disagreeing-sources/blocked.json` | https://api.stellar.expert/explorer/directory/blocked-domains/darkpool.digital (captured 2026-09-22, returns `blocked: false`) |
+| `doge-disagreeing-sources/directory.json` | https://api.stellar.expert/explorer/directory/GA22IDJNHUMC3XKUCCBFNTQIJOUBWINC5GCXHLJ2V6KZ3OWAXCULNQ7P (captured 2026-09-22, tags `malicious`, `unsafe`) |

@@ -29,6 +29,7 @@ with provenance recorded in
 | `USDC` (Circle) | **legitimate, uses the flags** | The critical case. A real regulated stablecoin that legitimately uses `auth_revocable`. |
 | `BERKSHIRE` (nasdaq.finance) | trap | Impersonation asset with clawback. Confiscation capability *and* confirmed-bad reputation. |
 | `DOGE` (darkpool.digital) | trap | Known scam carrying **no auth flags**. The case that justifies the second axis. |
+| `DOGE` (contradictory sources) | trap | Sources disagree (`blocked=false` on domain `darkpool.digital`, directory tags `malicious`). Proves escalation still fires when sources disagree. |
 
 ## Results
 
@@ -43,6 +44,7 @@ row on each test run, so the table cannot drift from the code without a red test
 | usdc-revocable-regulated | `USDC` | medium | **medium** | false | unverified | `auth_revocable`, `domain_unverified` |
 | berkshire-clawback-scam | `BERKSHIRE` | high | **critical** | true | unverified | `auth_revocable`, `auth_clawback_enabled`, `domain_unverified`, `blocklisted` |
 | doge-noflags-scam | `DOGE` | clear | **critical** | true | unverified | `domain_unverified`, `blocklisted` |
+| doge-disagreeing-sources | `DOGE` | clear | **critical** | true | unverified | `domain_unverified`, `blocklisted` |
 
 ## What each result proves
 
@@ -89,6 +91,19 @@ work.
 
 This subject is the reason reputation is kept as a separate upward-only axis
 rather than being dropped for purity.
+
+### DOGE (contradictory sources) — handling disagreeing reputation sources
+
+`base: clear` → `final: critical`, escalated.
+
+A regression fixture where consumed reputation sources disagree: StellarExpert's
+`blocked-domains` returns `blocked=false` for `darkpool.digital`, while the
+`directory` tags the issuer as `malicious` and `unsafe`.
+
+Assay consumes both sources and escalates if *either* source flags evidence of
+abuse. Requiring agreement between sources would silently drop known scams when
+one source is incomplete or delayed. This fixture proves that escalation fires
+despite the disagreement.
 
 ### BERKSHIRE — both axes firing
 
