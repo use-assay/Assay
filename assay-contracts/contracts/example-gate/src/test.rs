@@ -185,3 +185,14 @@ fn severity_above_ceiling_is_refused() {
         Err(Ok(Error::SeverityTooHigh))
     );
 }
+
+/// Contract error discriminants are ABI documented in docs/integrating.md and live results.
+/// Reordering or changing discriminants silently breaks integrator error handling.
+#[test]
+fn error_code_values_are_abi() {
+    assert_eq!(Error::NotAttested as u32, 1);
+    assert_eq!(Error::AttestationStale as u32, 2);
+    assert_eq!(Error::IssuerCanTakeIt as u32, 3);
+    assert_eq!(Error::SeverityTooHigh as u32, 4);
+}
+
