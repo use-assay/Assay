@@ -108,6 +108,14 @@ func (s *Scanner) Subject(ctx context.Context, a mechanics.Asset) (*mechanics.Su
 	sub.Issuer = issuer
 	sub.IssuerFetchedAt = time.Now().UTC()
 
+	sub.ExpertAssetURL = s.Expert.AssetURL(a.Code, a.Issuer)
+	expertAsset, err := s.Expert.Asset(ctx, a.Code, a.Issuer)
+	if err != nil {
+		sub.ExpertAssetErr = err.Error()
+	} else {
+		sub.ExpertAsset = expertAsset
+	}
+
 	if domain := issuer.HomeDomain; domain != "" {
 		sub.TomlURL = sep1.URLFor(domain)
 		attempted := time.Now().UTC()

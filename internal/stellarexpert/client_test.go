@@ -21,6 +21,7 @@ const (
 	bodyUnlisted = `{}`
 	// A real entry, which echoes the address it describes.
 	bodyListed = `{"address":"GAROH4EV3WVVTRQKEY43GZK3XSRBEYETRVZ7SVG5LHWOAANSMCTJBB3U","name":"Zeam.Money","domain":"zeam.money","tags":["issuer"]}`
+	bodyAsset  = `{"asset":"USDC-GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN-1","code":"USDC","issuer":"GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN","supply":"3675875656477148","trustlines":{"total":2431888,"authorized":2431888,"funded":703330},"rating":{"age":10,"activity":10,"trustlines":10,"liquidity":10,"volume7d":10,"interop":4,"average":9}}`
 )
 
 // TestUserAgent pins the identity the scanner offers StellarExpert. A specific
@@ -116,5 +117,27 @@ func TestBlockedDomainDecodes(t *testing.T) {
 	}
 	if b == nil || b.Domain != "darkpool.digital" || b.Blocked {
 		t.Fatalf("blocklist answer decoded wrongly: %+v", b)
+	}
+}
+
+func TestAssetDecodesAndUsesPublicPath(t *testing.T) {
+	const issuer = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(bodyAsset))
+	}))
+	t.Cleanup(srv.Close)
+
+	asset, err := stellarexpert.New(srv.URL).Asset(context.Background(), "USDC", issuer)
+	if err != nil {
+		t.Fatalf("Asset: %v", err)
+	}
+	if got, want := gotPath, "/explorer/public/asset/USDC-"+issuer; got != want {
+		t.Fatalf("request path = %q, want %q", got, want)
+	}
+	if asset.Supply != "3675875656477148" || asset.Trustlines.Funded != 703330 || asset.Rating.Average != 9 {
+		t.Fatalf("asset decoded wrongly: %+v", asset)
 	}
 }
