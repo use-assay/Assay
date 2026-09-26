@@ -33,9 +33,8 @@ The reasoning always states the raw capability in plain language, whatever the
 level works out to. A reader is never told a number without being told what the
 issuer can actually do.
 
-`auth_immutable` is reported but never scored, because its meaning is
-conditional: locked-with-no-dangerous-flags is a safety property, and
-locked-with-clawback is permanence of a hazard. Both are stated in prose.
+`auth_immutable` is not scored here: whether the flag set can still change is a
+separate, first-class finding — see [`mutability`](#mutability).
 
 ### The two copies of the flags
 
@@ -82,6 +81,52 @@ not a live capture, because no disagreeing asset has ever been observed.
 **Cannot conclude:** whether the issuer will ever use the power; whether an
 existing holder is exposed (clawback is inherited at trustline creation, so this
 answers the prospective question only); or anything about who the issuer is.
+
+## `mutability`
+
+**Concludes:** whether the issuer's authorization flag set can still change.
+**Sets:** nothing. Severity stays `Clear` in every case.
+
+`auth_immutable` is not a power over holders, so it is deliberately not a
+severity level — see [the severity model](severity-model.md). Its meaning is
+conditional, and this check reports the condition rather than folding it into a
+number. There are three states, each with its own reasoning:
+
+- **Locked with no dangerous flags** — a durable safety property. Because the
+  flag set can never change, `auth_revocable` and `auth_clawback_enabled` can
+  never be added, so a `clear` verdict today is also `clear` for a trustline
+  opened later.
+- **Locked with freeze or clawback** — permanence. No flag in the set can be
+  given up, because `AUTH_IMMUTABLE_FLAG` cannot be cleared once set (CAP-0035
+  makes all `AUTH_*` flags read-only). Locking does not make the power safer; it
+  removes any future in which the issuer relinquishes it.
+- **Not locked** — the issuer may add freeze or confiscation later. Under
+  CAP-0035 a flag added later does not reach trustlines that already exist, but
+  it applies to any trustline opened after the change. This is the state a
+  prospective holder wants surfaced, because it is the one where today's `clear`
+  is not a durable answer.
+
+**Flag source.** The check reads the issuer flags from the same Horizon
+`/assets` record the `capability` check derives severity from, so the two
+findings cannot disagree about the flag set. `auth_immutable` is also carried on
+the issuer `/accounts` record; that is a second ingestion path Assay does not yet
+reconcile, and taking the `/assets` record here keeps this finding consistent
+with the severity reported beside it. The gap is recorded in
+[the attestation run](attestation-run.md#what-the-checks-can-get-wrong).
+
+**No evidence.** The flag read is already attributed by the `capability`
+finding's Horizon evidence. `evidence_hash` is a SHA-256 over a **sorted list**
+of evidence lines, so a second copy of the same claim — or a new claim about the
+same read — would change the hash of every attestation whose underlying evidence
+did not change, which the encoding is explicitly designed to prevent. This check
+therefore reasons over the read that is already attributed rather than
+re-emitting it.
+
+**Cannot conclude:** what the issuer will do with the power, or whether an
+existing holder is exposed. It reports only the durability of the flag set,
+which is a fact about the issuer account. It is not a safety verdict on its own:
+an unlocked `clear` asset is still only clear about issuer capability, not about
+whether the asset is genuine.
 
 ## `sep1-domain`
 

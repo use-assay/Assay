@@ -1,173 +1,216 @@
-# Attestation freshness and re-attestation policy
+# Freshness
 
-**Status: policy document.** It answers
-[#9](https://github.com/use-assay/Assay/issues/9): when an attestation must be
-refreshed, how a consumer should choose `max_age_secs`, and — stated honestly —
-how much exposure the gaps between attestations actually carry.
+An attestation is a snapshot. This page answers the question every consumer
+eventually asks: **how old may one be before it should not be relied on?**
 
-The contract deliberately leaves freshness to the caller: `is_safe` takes
-`max_age_secs` and fails closed on a stale attestation
-([contract-interface.md](contract-interface.md#staleness-is-the-callers-policy)).
-That is the right split for the *mechanism* — a DEX listing gate and a large
-settlement have very different tolerances — but a mechanism without a policy
-is an unfilled-in form. This document fills it in, with reasoning a consumer
-can disagree with explicitly rather than silently.
+The short answer is that the registry refuses to answer that question for you,
+and this page is the reasoning you need to answer it yourself — including the
+measured data on how often the thing underneath the snapshot actually changes.
 
-Read alongside [attestation-writer.md](attestation-writer.md), which designs
-the thing that actually performs re-attestation; nothing here is enforceable
-until that exists.
+## Who decides
 
-## What attestation freshness is *for*
+Three parties are involved, and none of them decides for another:
 
-An attestation is a claim that a scan at time T found the issuer holding
-capability C. It goes stale in two independent ways:
+| Party | Role in freshness |
+| --- | --- |
+| The registry | Stores `attested_at` and nothing else. It takes a caller-supplied `max_age_secs` on `is_safe` and enforces no freshness rule of its own. |
+| The attester (Assay) | Writes attestations. Nothing re-attests on a schedule; every attestation is exactly as fresh as its `attested_at` implies. |
+| The consuming gate | The only party that can hold an opinion, because it is the only party that knows what it is protecting. It picks `max_age_secs` (or the equivalent check on `attested_at`). |
 
-1. **The claim ages.** The world may have changed since T.
-2. **The claim erodes.** Even unchanged, an old attestation was verified by
-   fewer contemporaneous observers, and the pipeline that would refresh it may
-   have silently stopped (the failure mode
-   [attestation-writer.md](attestation-writer.md#5-failure-visibility) exists
-   for).
+This split is deliberate. A deposit gate holding other people's balances, a
+one-shot settlement, and an explorer displaying asset badges should not be
+forced to agree on how fresh is fresh enough — and a policy frozen into the
+registry would be wrong for most of them and upgradeable only by contract
+migration. So the registry exposes the timestamp and takes the tolerance as a
+parameter: [integrating.md](integrating.md) calls this "your policy, not
+Assay's", and this page is what makes that choice an informed one instead of a
+copy-pasted constant.
 
-`max_age_secs` covers both at once, which is why it is a single knob and why
-no recommendation here pretends to distinguish them.
+## What can change under an attestation
 
-## Recommended `max_age_secs` bands
+An attestation records what a scan observed: the issuer's authorization flags,
+the SEP-1 domain claim, StellarExpert's directory and blocklist answers, and
+the severity those produced. Each of those can move after the write:
 
-These are bands with reasoning, not a magic number. The reasoning is the point:
-a consumer that needs a different number should be able to say which of these
-arguments does not apply to it.
-
-| Band | `max_age_secs` | For consumers whose worst case is… | Reasoning |
+| Underlying fact | Who can change it | How fast it can move | What it does to a stale attestation |
 | --- | --- | --- | --- |
-| **Settlement-grade** | ≤ 3600 (1 hour) | irrecoverable loss on a single action | A settlement is a one-shot, high-value action; the marginal cost of requiring a fresh attestation is one more pipeline cycle, and the exposure window (below) is only ever as long as the pipeline's scan interval. Anything looser makes the gate's per-call guarantee weaker than the action it protects. |
-| **Market-infrastructure** | ≤ 21600 (6 hours) | many users routed by one automated gate | A DEX listing gate or an aggregator checks constantly but per-asset risk accrues slowly; the binding constraint is that *some* fresh verification exists within the same trading day. 6h keeps worst-case exposure comfortably under a day even if the event-driven trigger (below) misses. |
-| **Monitoring-grade** | ≤ 86400 (24h) | dashboards, notification, research | The consumer acts on human timescales; a day-fresh claim is materially the same as an hour-fresh one for deciding what to look at. This is also the example gate's window, kept as the upper bound of *automated* acceptance. |
-| **Never acceptable** | > 604800 (7 days) | — | An attestation older than a week is not a freshness policy, it is an archaeological record. A consumer wanting this is gating on nothing and should read `get_safety` without `is_safe` and say so honestly. |
+| Issuer auth flags (`auth_required`, `auth_revocable`, `auth_clawback_enabled`, `auth_immutable`) | The issuer's signer, in one `set_options` transaction | One ledger close (~5 s) from decision to effect | Flags can gain a power the attestation says the issuer does not have |
+| Trustline-level clawback | Nobody, after creation (CAP-0035 fixes it at trustline creation) | Never per-trustline | No effect — but a stale attestation says nothing about trustlines opened since |
+| `home_domain` and its stellar.toml | The issuer | One transaction; the toml is a web page | Accountability can flip without the flags moving |
+| StellarExpert directory tags / blocklist | StellarExpert curators | On their review cycle, any time | A malicious listing can appear that a stale severity does not carry |
+| Held balances / trustlines | Holders and issuer ops | Continuous | Not attested at all — this is per-holder state, out of scope here |
 
-Two rules that hold across all bands:
+Two of those rows deserve emphasis, because they differ in direction:
 
-- **The band is a ceiling, not a target.** `max_age_secs = 0` (freshness
-  disabled) is legitimate only for reads that are explicitly not gates —
-  displaying what the registry says, or the verification procedure in
-  [deployment.md](deployment.md), which deliberately needs no freshness at all.
-- **Tighter is always safe.** Nothing in the registry or the pipeline breaks
-  if a consumer demands fresher attestations than the schedule delivers; it
-  just fails closed more often. That asymmetry — cost of tightness is
-  availability, cost of looseness is safety — is why the bands lean strict.
+- **Turning `auth_revocable` on endangers balances that already exist.** A
+  freeze applies to current trustlines immediately.
+- **Turning `auth_clawback_enabled` on does not endanger balances that already
+  exist.** Under [CAP-0035](https://github.com/stellar/stellar-protocol/blob/master/core/cap-0035.md)
+  clawback is inherited at trustline creation; only trustlines opened after the
+  flag was set are exposed. See `internal/mechanics/check_trustline.go` for the
+  per-holder reading of the same fact.
 
-## The re-attestation cadence
+So the freshest-dangerous-direction for a gate holding *existing* balances is a
+flag flip to `auth_revocable`, and it is instant. That asymmetry — staleness
+can only ever under-report danger, never over-report it — is why every window
+below errs short rather than long.
 
-**Decision: daily scheduled re-attestation of the whole attested set, plus
-event-driven re-attestation of an asset as soon as a scan observes its
-capability change.**
+## How often do issuer flags actually change?
 
-- **Daily floor.** Every attested asset is re-scanned and re-attested at least
-  once every 24 hours, so the *monitoring-grade* band above is always
-  satisfiable. Re-attestation with identical evidence moves only `attested_at`
-  (demonstrated live on AQUA and DOGE,
-  [deployment.md](deployment.md#the-26-fix-before-and-after)), so a daily
-  refresh is cheap in both fees and hash churn: fees are negligible
-  ([attestation-writer.md](attestation-writer.md#4-which-assets-and-who-pays)),
-  and `evidence_hash` does not move unless the evidence did.
-- **Event-driven trigger.** The writer's watcher re-scans attested assets'
-  issuers on a short interval (scan cost permitting; the scans are three HTTP
-  calls). On a capability addition or severity escalation — the transitions
-  [`temporal`](../internal/temporal) detects — the asset is re-attested
-  immediately rather than waiting for the daily slot. The trigger is
-  detection-driven, so its latency is one scan interval, not one day.
-- **No re-attestation on reputation-only movement is required** for
-  freshness, because reputation lives in the same `severity` field and a
-  re-scan re-derives it; the event trigger fires on it the same way. The
-  daily floor covers both axes regardless of trigger misses.
+The honest answer requires data, not intuition, so this was measured from
+Horizon's effect history rather than asserted. Method and results follow; both
+the numbers and the caveat about the method are part of the record.
 
-The cadence is a property of the *writer*; the bands above are a property of
-the *consumer*. They meet in the middle: the daily floor exists so the 24h
-band is honest, and the event trigger exists so capability *additions* do not
-wait for it.
+### Method
 
-## The exposure window, stated honestly
+Horizon records every flag mutation as an `account_flags_updated` effect.
+Walking those effects for an issuer account and counting the events inside a
+window yields that issuer's flag-change history.
 
-**An issuer can enable `auth_clawback_enabled` at any time, and every
-trustline opened after that change is exposed. The window between the change
-and the next attestation is real risk surface, and no cadence closes it.**
-Stated in pieces, because the honest answer is not one number:
+**One caveat, verified live on 2026-09-24:** Horizon's server-side filtering
+for effects is currently unreliable. The public Horizon instances
+(pubnet `28.0.1`, testnet `29.0.0`) silently ignore the documented `type=` and
+`type_i=` parameters on `/effects` — a request for flag effects returns
+unfiltered effects with HTTP 200 and no warning. Any measurement (or
+monitoring pipeline) built on this endpoint must therefore fetch account-scoped
+pages and filter client-side, which is what the numbers below did. Until that
+changes, do not trust a flag-change count that was produced by `?type=account_flags_updated`.
 
-- **Chain-visible immediately.** Flag changes are ordinary `SetOptions`
-  operations; they take effect at ledger close and are visible in Horizon the
-  moment that close lands (~5 s cadence, confirmed live 2026-09-25 on both
-  pubnet and testnet). Horizon does not lag the change in any way a scanner
-  could not see with a fresh fetch — this was explicitly verified before
-  writing this policy rather than assumed.
-- **Scanner-visible within one scan interval.** The event-driven watcher
-  re-scans on a short interval; a flag change is detected on the first pass
-  after it lands. Detection latency is therefore minutes under normal
-  operation — but it is *bounded by the interval*, not zero, and a watcher
-  outage stretches it to the daily floor.
-- **Attestation-visible within one write cycle.** Detection then submission;
-  the write lands a ledger or two later.
-- **Consumer-visible only at the next gated call.** This is the part no
-  pipeline fixes: between the flag change and the next `is_safe` read of a
-  *refreshed* attestation, a consumer using band N admits based on the old
-  attestation. With the event trigger healthy, that window is minutes; with
-  the watcher down, up to the consumer's `max_age_secs`.
+The subjects were the seven unique issuers behind the ten attested assets
+(see [attestation-run.md](attestation-run.md)). The window was the six months
+preceding 2026-09-24 (2026-03-24 through 2026-09-24), walked back page by page
+until the window's start, with client-side filtering.
 
-**The CAP-0035 caveat that materially changes the urgency, re-read from the
-spec before writing this:**
-[`cap-0035.md`](https://github.com/stellar/stellar-protocol/blob/master/core/cap-0035.md)
-requires that "`AUTH_CLAWBACK_ENABLED_FLAG` … must be set when a trustline is
-created to authorize a `ClawbackOp`". Clawback power is **inherited at
-trustline creation**: a holder whose trustline predates the flag is not
-exposed to `ClawbackOp` on that balance, and `SetTrustLineFlagsOp` cannot add
-`TRUSTLINE_CLAWBACK_ENABLED_FLAG` retroactively. So:
+### Results: the attested set
 
-- For **existing holders**, a newly-enabled clawback flag changes nothing
-  about their current balance. The exposure window above applies to them at
-  **freeze** severity (`auth_revocable` *does* reach existing trustlines —
-  freezing is an issuer-side `SetTrustLineFlagsOp` away, no inheritance
-  required), not at confiscation severity.
-- For **new trustlines opened inside the window**, exposure is full: clawback
-  attaches at creation. The window is most dangerous precisely for the
-  people the gate is trying to protect — those deciding whether to open a
-  trustline *now* — which is why the event trigger exists and why
-  `assay scan` remains available to anyone who wants a point-in-time answer
-  rather than a possibly-stale attested one.
-
-This is also why the severity model's prospective framing
-([severity-model.md](severity-model.md)) is the right one for the scan and
-why an attestation's `attested_at` is the right thing for a gate to lean on:
-the scan answers "what can the issuer do to a trustline opened now", and
-`max_age_secs` bounds how far from *now* that answer is allowed to sit.
-
-## What a consumer should do on `false`
-
-`is_safe` returning `false` is fail-closed, and it collapses four different
-worlds. A consumer should distinguish them before deciding what `false` *costs*,
-because the responses differ:
-
-| Why it was false | How to tell | Reasonable response |
+| Issuer (asset) | Flag-value changes in window | Notes |
 | --- | --- | --- |
-| **Never attested** | `get_safety` → `None` | **Block** for settlement-grade gates; **degrade** (scan on demand, or warn with the unattested status shown) is defensible where blocking every unattested asset would make the product useless. Never silently pass. |
-| **Stale** | `Safety.attested_at` older than the consumer's `max_age_secs` | **Degrade or retry**: the claim may be about to refresh. A short backoff-and-recheck (seconds to minutes) is often right; a settlement should still block rather than proceed on the stale value. |
-| **Too severe** | `severity > max_severity` or a refused bit in `flags` | **Block.** This is the gate working as designed; the issuer genuinely holds power the consumer has declined. Do not "degrade" a refusal into a warning — the whole model is that capability decides. |
-| **Internally inconsistent** | clawback bit set below `SEVERITY_HIGH` (contract-checked) | **Block and report.** This is a writer bug or tampering;
-  [report it as a security issue](../SECURITY.md), not an operational one. |
+| BERKSHIRE (`BERKSHIRE`) | 0 | 4 events in 2025-11-06 → 2026-02-01, adjacent to the window — see below |
+| USDC (`USDC`) | 0 | Full history walked: 27 pages of effects, zero flag events |
+| AQUA (`AQUA`) | 0 | |
+| USDZ (`USDZ`) | 0 | One `account_flags_updated` effect on 2026-05-20 carrying **no** flag values — a no-op effect, not a change |
+| USDGLO (`USDGLO`) | 0 | |
+| ARST (`ARST`) | 0 | Issuer's pubnet effect history was walkable but the account no longer resolves on either network — consistent with a merged-away account; contributed no events |
+| VELO / REPO / KALE | 0 | Issuer (`GCZMWSOII…`) has no resolvable account or effect history on either network; contributed no events |
 
-The general shape: **block when the answer is "no" about capability, degrade
-when the answer is "we don't know yet", and never let a degrade path render
-the same output as a pass.** That last clause is the repo-wide rule —
-"'we could not check' and 'this is fine' are different answers"
-([checks.md](checks.md#sep1-domain)) — applied at the consumer boundary,
-where it matters most.
+Zero confirmed flag-value changes across the attested set in six months, on
+the five issuers with full pubnet history. (The one in-window flag effect, on
+the USDZ issuer, changed nothing — Horizon emits the effect type even when a
+`set_options` call sets a flag to the value it already had. A monitoring
+pipeline that counts raw effects rather than value changes will overcount; the
+no-op is recorded here so nobody re-derives it wrong.)
 
-## Invariants this policy must never break
+### Results: the adversarial contrast
 
-- **No change that lets a stale attestation pass.** Every recommendation here
-  tightens or leaves alone the fail-closed behaviour in
-  [`is_safe`](../assay-contracts/contracts/safety-registry/src/lib.rs); the
-  existing `stale_attestation_fails_closed` test is the line in the sand.
-- **Freshness never changes severity.** An old attestation of `high` and a
-  fresh attestation of `high` carry the same capability claim; age is a
-  separate axis the consumer owns. Nothing here introduces a time-based
-  severity adjustment, which would smuggle a reputation-like input into the
-  capability gate.
+The same walk, extended past the window on the BERKSHIRE issuer — the scam
+asset Assay was built to catch — shows why class matters more than averages:
+
+| Period | Flag-change events |
+| --- | --- |
+| 2025-11-06 → 2026-02-01 (3 months, just before the window) | **4** |
+| 2026-03-24 → 2026-09-24 (the 6-month window) | 0 |
+
+The scam class mutates its flags on month timescales: the BERKSHIRE issuer was
+actively rearranging its authorization flags as recently as one window-width
+ago, and the legitimate issuers were not. A rate measured over honest issuers
+does not bound the rate of an adversarial one — which is the whole reason
+freshness policy defaults short, and why [reputation](severity-model.md)
+escalates on evidence rather than waiting for mechanics to catch up.
+
+### Exposure context
+
+For scale: a census of the 5,000 most recently created assets on pubnet
+(`/assets`, 2026-09-24) found **373 (7.5%)** carrying at least one
+authorization flag — 370 `auth_revocable`, 304 `auth_clawback_enabled`. A flag
+flip is not a rare event type in the abstract; it is rare *so far* among the
+specific issuers that have been attested, and most of the network's flagged
+assets have never been attested at all.
+
+## What the data supports
+
+The measurement bounds the answer rather than pinpointing it:
+
+- **Legitimate-issuer class:** 0 flag changes over 6 months among the issuers
+  with full history. With so few change events, the 95% upper bound on the
+  change rate is on the order of one event per issuer per ~90 days (the rule of
+  three: zero events in six issuer-half-years). The true rate is *somewhere*
+  below that; the sample is too small and too well-behaved to say where.
+- **Adversarial class:** at least one flag mutation per quarter, demonstrated.
+  No window longer than weeks bounds the damage an adversarial issuer can do
+  between attestation and action.
+
+That gap — legitimate issuers changing flags slower than once a quarter,
+adversarial ones faster than once a quarter — is the actual input to a window:
+it says the binding constraint is the adversary, not the median issuer.
+
+## Recommended windows
+
+Every number in this section is a **provisional default**: chosen, reasoned,
+and reproducible from the data above, but not itself a measurement. The
+measurements are the 0/4/373 figures in the previous sections; the windows are
+policy layered on top of them.
+
+| Use class | Window | Provisional default | Reasoning |
+| --- | --- | --- | --- |
+| **Custodial deposit gate** — you hold the balance on behalf of users | Hours, not days | 24 h (`86 400` s) | A balance survives contact with the issuer indefinitely, so what must be bounded is the exposure window to a flag flip. The adversarial class demonstrated month-scale churn; a day-long window bounds the worst case at ~1/30 of the observed adversarial mutation interval, while still being achievable given re-attestation is a manual process today. This is the example gate's value, and it now has a stated derivation. |
+| **One-shot settlement / pre-trade check** — you move your own balance once | Minutes; in practice, a fresh scan at execution time | ≤ 1 h (3 600 s) if a cached attestation must be used | The check and the action land in the same transaction, so the cheapest correct policy is to re-scan at execution time and consume an attestation only as a cross-check. A day-old snapshot is indefensible when a fresh one costs one scan. |
+| **Portfolio monitoring / dashboards** — informational, not gating | Days | 7 d | Staleness here wastes attention, not funds. The window should be shorter than the legitimate-issuer bound (~90 d) by a wide margin so that a flag change is caught in days, not months. |
+| **Explorer display / public badge** — context, never a decision | Weeks | 30 d | Must be framed "as of attested_at", never as a verdict. The safest presentation couples the badge to its timestamp explicitly. |
+
+Two rules cut across the table:
+
+1. **Staleness is asymmetric.** A stale attestation can only ever under-report
+   danger — flags move by gaining powers, and reputation only escalates. There
+   is no scenario where an older attestation is safer than a newer one, so when
+   a window is uncomfortable, shorten it.
+2. **A window without a re-attestation path is a countdown.** Nothing refreshes
+   attestations on a schedule today ([contract-interface.md](contract-interface.md),
+   "Not done yet"): every attestation ages out of *every* window eventually, and
+   a gate with a strict window plus no refresher will refuse everything —
+   which is exactly what the example gate does right now: **all ten live
+   attestations are past its 24-hour window as of this writing.** That is the
+   policy working, not a malfunction; the gate is being honest about what it
+   knows. A production deployment needs either a scheduled re-scan-and-attest
+   loop or a window matched to how often it is actually willing to re-verify.
+
+## What the registry does and does not enforce
+
+To be precise about where the walls are:
+
+- `get_safety` returns `attested_at` and lets the caller decide everything.
+- `is_safe(asset, max_severity, max_age_secs)` enforces *the caller's* age
+  policy against the ledger timestamp. `max_age_secs = 0` disables the check —
+  pass it only when staleness is an accepted property of the query, never to
+  make a call stop failing.
+- Attestation writes do not check the age of any prior attestation, and the
+  contract holds no notion of expiry: an attestation never expires on its own,
+  it only goes stale relative to a caller's policy.
+- The one invariant the registry *does* enforce on writes is the
+  confiscation-severity consistency check — an asset whose flags include
+  clawback may not be attested below severity 3 — which is a statement about
+  internal consistency, not about time.
+
+That is the whole mechanism. It is intentionally thin, because freshness is a
+property of the *use*, not of the asset: the correct window for "should my
+vault accept a deposit right now" is different from "should this explorer show
+a green badge", and only the caller knows which question it is asking.
+
+## Re-deriving these numbers
+
+Everything measured here is reproducible without trust in this document:
+
+```sh
+# Flag history for one issuer. NOTE: server-side filtering is unreliable on
+# current Horizon (type= / type_i= silently ignored — verified 2026-09-24),
+# so fetch account-scoped pages and filter client-side:
+curl -s "https://horizon.stellar.org/accounts/<ISSUER>/effects?limit=200&order=desc" \
+  | jq '[._embedded.records[] | select(.type=="account_flags_updated")]'
+
+# Exposure census, most recent assets first:
+curl -s "https://horizon.stellar.org/assets?limit=200&order=desc" \
+  | jq '[._embedded.records[] | select(.flags.auth_required or .flags.auth_revocable or .flags.auth_clawback_enabled)] | length'
+```
+
+If you re-run the measurement and get different counts, update this page —
+the windows are only as good as the data underneath them, and the data is
+supposed to be re-checked, not remembered.
