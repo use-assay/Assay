@@ -31,3 +31,8 @@ Each directory is one labelled subject for the eval in docs/eval.md.
 | `doge-noflags-scam/stellar.toml.status` | https://darkpool.digital/.well-known/stellar.toml (HTTP 000) |
 | `doge-noflags-scam/blocked.json` | https://api.stellar.expert/explorer/directory/blocked-domains/darkpool.digital |
 | `doge-noflags-scam/directory.json` | https://api.stellar.expert/explorer/directory/GA22IDJNHUMC3XKUCCBFNTQIJOUBWINC5GCXHLJ2V6KZ3OWAXCULNQ7P |
+| `xrp-clear-unlocked/asset.json` | https://horizon.stellar.org/assets?asset_code=XRP&asset_issuer=GBXRPL45NPHCVMFFAYZVUVFFVKSIZ362ZXFP7I2ETNQ3QKZMFLPRDTD5 (captured 2026-09-25) |
+| `xrp-clear-unlocked/account.json` | https://horizon.stellar.org/accounts/GBXRPL45NPHCVMFFAYZVUVFFVKSIZ362ZXFP7I2ETNQ3QKZMFLPRDTD5 (captured 2026-09-25) |
+| `xrp-clear-unlocked/stellar.toml` | https://fchain.io/.well-known/stellar.toml (captured 2026-09-25) |
+| `xrp-clear-unlocked/blocked.json` | https://api.stellar.expert/explorer/directory/blocked-domains/fchain.io (captured 2026-09-25) |
+| `xrp-clear-unlocked/directory.json` | https://api.stellar.expert/explorer/directory/GBXRPL45NPHCVMFFAYZVUVFFVKSIZ362ZXFP7I2ETNQ3QKZMFLPRDTD5 (captured 2026-09-25) |

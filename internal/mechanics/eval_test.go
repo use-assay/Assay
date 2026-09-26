@@ -26,15 +26,22 @@ func loadSubject(t *testing.T, dir string) *mechanics.Subject {
 	var acct horizon.Account
 	readJSON(t, filepath.Join(base, "account.json"), &acct)
 
+	// Fixture capture time. A live scan records a separate completion time
+	// per source; a fixture replay has no latency, so every source answers at
+	// the same instant — which is what the capture itself looked like.
+	fetched := time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)
 	s := &mechanics.Subject{
-		Asset:     mechanics.Asset{Code: stat.AssetCode, Issuer: stat.AssetIssuer},
-		Stat:      &stat,
-		Issuer:    &acct,
-		FetchedAt: time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC),
+		Asset:           mechanics.Asset{Code: stat.AssetCode, Issuer: stat.AssetIssuer},
+		Stat:            &stat,
+		StatFetchedAt:   fetched,
+		Issuer:          &acct,
+		IssuerFetchedAt: fetched,
+		ScannedAt:       fetched,
 	}
 
 	if acct.HomeDomain != "" {
 		s.TomlURL = sep1.URLFor(acct.HomeDomain)
+		s.TomlAttemptedAt = fetched
 	}
 	if b, err := os.ReadFile(filepath.Join(base, "stellar.toml")); err == nil {
 		doc, err := sep1.Parse(b)
@@ -47,16 +54,24 @@ func loadSubject(t *testing.T, dir string) *mechanics.Subject {
 		s.TomlErr = "status " + strings.TrimSpace(string(st))
 	}
 
+	s.DirectoryURL = "https://api.stellar.expert/explorer/directory/" + stat.AssetIssuer
+	s.DirectoryAttemptedAt = fetched
 	if _, err := os.Stat(filepath.Join(base, "directory.json")); err == nil {
 		var e stellarexpert.DirectoryEntry
 		readJSON(t, filepath.Join(base, "directory.json"), &e)
 		s.Directory = &e
-		s.DirectoryURL = "https://api.stellar.expert/explorer/directory/" + stat.AssetIssuer
+		s.DirectoryFetchedAt = fetched
 	}
+	s.BlockedURL = "https://api.stellar.expert/explorer/directory/blocked-domains/"
+	if acct.HomeDomain != "" {
+		s.BlockedURL += acct.HomeDomain
+	}
+	s.BlockedAttemptedAt = fetched
 	if _, err := os.Stat(filepath.Join(base, "blocked.json")); err == nil {
 		var b stellarexpert.BlockedDomain
 		readJSON(t, filepath.Join(base, "blocked.json"), &b)
 		s.Blocked = &b
+		s.BlockedFetchedAt = fetched
 	}
 	if _, err := os.Stat(filepath.Join(base, "stellar-expert-asset.json")); err == nil {
 		var a stellarexpert.Asset
@@ -105,6 +120,15 @@ func TestEval(t *testing.T) {
 		{
 			dir:          "shx-clear-flagslocked",
 			why:          "no auth flags AND auth_immutable: the issuer can never add freeze or clawback later",
+			wantBase:     mechanics.Clear,
+			wantSeverity: mechanics.Clear,
+			wantAccount:  mechanics.AccountabilityVerified,
+		},
+		{
+			dir: "xrp-clear-unlocked",
+			why: "the unlocked counterpart to SHX: no auth flags, but auth_immutable is UNSET, so the " +
+				"issuer may add freeze or clawback later. The mutability finding must report that " +
+				"without moving base severity off clear.",
 			wantBase:     mechanics.Clear,
 			wantSeverity: mechanics.Clear,
 			wantAccount:  mechanics.AccountabilityVerified,
@@ -239,7 +263,8 @@ func TestAssetSignalsAreAttributedAndDoNotChangeSeverity(t *testing.T) {
 func TestConfiscationImpliesHigh(t *testing.T) {
 	eng := mechanics.NewEngine()
 	for _, dir := range []string{
-		"aqua-clear-verified", "shx-clear-flagslocked", "usdc-revocable-regulated",
+		"aqua-clear-verified", "shx-clear-flagslocked", "xrp-clear-unlocked",
+		"usdc-revocable-regulated",
 		"berkshire-clawback-scam", "doge-noflags-scam",
 	} {
 		rep, err := eng.Run(context.Background(), loadSubject(t, dir))
