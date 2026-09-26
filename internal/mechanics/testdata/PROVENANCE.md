@@ -35,3 +35,4 @@ Each directory is one labelled subject for the eval in docs/eval.md.
 | `xrp-clear-unlocked/stellar.toml` | https://fchain.io/.well-known/stellar.toml (captured 2026-09-25) |
 | `xrp-clear-unlocked/blocked.json` | https://api.stellar.expert/explorer/directory/blocked-domains/fchain.io (captured 2026-09-25) |
 | `xrp-clear-unlocked/directory.json` | https://api.stellar.expert/explorer/directory/GBXRPL45NPHCVMFFAYZVUVFFVKSIZ362ZXFP7I2ETNQ3QKZMFLPRDTD5 (captured 2026-09-25) |
+| `retry-observed/429` | https://api.stellar.expert/explorer/directory/GBXRPL45NPHCVMFFAYZVUVFFVKSIZ362ZXFP7I2ETNQ3QKZMFLPRDTD5 (observed 2026-09-26) | HTTP 429 with Retry-After: <seconds-integer>; the scanner's stellarexpert client retries the request after the advertised delay, honouring the header.
