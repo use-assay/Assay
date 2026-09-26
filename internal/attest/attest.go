@@ -123,6 +123,7 @@ func FromReport(rep *mechanics.Report) (Params, error) {
 //	escalated	true|false
 //	mechanics	N
 //	accountability	NAME
+//	checks	ID1,ID2,...
 //	evidence	SOURCE	URL	CLAIM      (one per claim, sorted)
 //
 // Two decisions in here are worth stating outright.
@@ -150,6 +151,7 @@ func Preimage(rep *mechanics.Report) string {
 	line(&b, "escalated", strconv.FormatBool(rep.Escalated))
 	line(&b, "mechanics", strconv.FormatUint(uint64(rep.Mechanics), 10))
 	line(&b, "accountability", string(rep.Accountability))
+	line(&b, "checks", strings.Join(rep.Checks, ","))
 
 	ev := make([]string, 0, len(rep.Evidence))
 	for _, e := range rep.Evidence {

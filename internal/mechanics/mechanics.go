@@ -199,6 +199,7 @@ type Report struct {
 	// consumer can see which axis is missing rather than only that one is.
 	UndeterminedChecks []string `json:"undetermined_checks"`
 
+	Checks        []string   `json:"checks"`
 	Mechanics     Mechanic   `json:"-"`
 	MechanicNames []string   `json:"mechanics"`
 	Findings      []Finding  `json:"findings"`
@@ -236,12 +237,14 @@ func (e *Engine) Run(ctx context.Context, s *Subject) (*Report, error) {
 		Asset:              s.Asset,
 		Accountability:     AccountabilityUnknown,
 		ScannedAt:          s.ScannedAt,
+		Checks:             []string{},
 		Findings:           []Finding{},
 		Evidence:           []Evidence{},
 		UndeterminedChecks: []string{},
 	}
 
 	for _, c := range e.Checks {
+		rep.Checks = append(rep.Checks, c.ID())
 		f, err := c.Run(ctx, s)
 		if err != nil {
 			return nil, fmt.Errorf("check %s: %w", c.ID(), err)
@@ -295,5 +298,6 @@ func (e *Engine) Run(ctx context.Context, s *Subject) (*Report, error) {
 	sort.SliceStable(rep.Findings, func(i, j int) bool {
 		return rep.Findings[i].Severity > rep.Findings[j].Severity
 	})
+	sort.Strings(rep.Checks)
 	return rep, nil
 }
