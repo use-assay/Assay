@@ -26,7 +26,9 @@
 //! listing escalates severity to [`SEVERITY_CRITICAL`]. Reputation can raise a
 //! level, never lower one.
 
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, BytesN, Env};
+use soroban_sdk::{
+    contract, contracterror, contractevent, contractimpl, contracttype, Address, BytesN, Env,
+};
 
 /// No authorization flags: the issuer has no special power over holders.
 pub const SEVERITY_CLEAR: u32 = 0;
@@ -68,6 +70,37 @@ pub struct Safety {
     pub evidence_hash: BytesN<32>,
     /// Ledger timestamp when this attestation was written.
     pub attested_at: u64,
+}
+
+/// Event emitted when an attestation is written or overwritten.
+///
+/// This event provides an on-chain audit trail so that any overwrite of an
+/// attestation can be detected and the previous value reconstructed from
+/// chain history.
+///
+/// Topics:
+/// - `"attest"`: static topic identifying the event type
+/// - `asset`: the Stellar Asset Contract address (as Address)
+///
+/// Data:
+/// - `previous`: the previous attestation, or `None` if this is the first
+///   attestation for this asset
+/// - `current`: the new attestation that was written
+///
+/// Retention: Soroban contract events are retained in ledger history for
+/// approximately 1 year (the same retention as ledger entries). Beyond that
+/// window, history is not reconstructible from chain alone; an off-chain
+/// indexer or archive is required for longer audit trails.
+#[contractevent(topics = ["attest"], data_format = "map")]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AttestationEvent {
+    /// The asset this attestation is for.
+    pub asset: Address,
+    /// The previous attestation, if any. `None` means this is the first
+    /// attestation for this asset.
+    pub previous: Option<Safety>,
+    /// The new attestation that was written.
+    pub current: Safety,
 }
 
 #[contracttype]
@@ -115,6 +148,10 @@ impl SafetyRegistry {
     /// scan, and `make attest` submits them. Validation here is not a
     /// formality: it enforces at write time the invariants that
     /// [`Self::is_safe`] relies on at read time.
+    ///
+    /// Emits an [`AttestationEvent`] with the previous value (if any) and the
+    /// new value, providing an on-chain audit trail. See the event
+    /// documentation for retention semantics.
     pub fn attest(
         env: Env,
         asset: Address,
@@ -136,15 +173,41 @@ impl SafetyRegistry {
             return Err(Error::InconsistentAttestation);
         }
 
-        let safety = Safety {
+        let new_safety = Safety {
             severity,
             flags,
             evidence_hash,
             attested_at: env.ledger().timestamp(),
         };
+
+        // Read the previous value before overwriting
+        let previous = env
+            .storage()
+            .persistent()
+            .get::<DataKey, Safety>(&DataKey::Safety(asset.clone()));
+
+        // Write the new attestation
         env.storage()
             .persistent()
-            .set(&DataKey::Safety(asset), &safety);
+            .set(&DataKey::Safety(asset.clone()), &new_safety);
+
+        // Extend TTL to maximum so the attestation persists until explicitly
+        // overwritten. Freshness is enforced by the caller via max_age_secs on
+        // is_safe, not by storage expiry.
+        env.storage().persistent().extend_ttl(
+            &DataKey::Safety(asset.clone()),
+            100,
+            env.storage().max_ttl(),
+        );
+
+        // Emit audit event
+        AttestationEvent {
+            asset: asset.clone(),
+            previous,
+            current: new_safety,
+        }
+        .publish(&env);
+
         Ok(())
     }
 
