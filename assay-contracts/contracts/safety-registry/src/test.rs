@@ -170,8 +170,8 @@ fn attest_rejects_unauthorized_caller() {
         .try_attest(&asset, &SEVERITY_CLEAR, &0, &hash(&env))
         .expect_err("non-admin must be rejected");
 
-    // The error type is SDK-internal (soroban_sdk::Error), not our contract
-    // Error enum. The important property is that it is an error at all: a
-    // non-admin caller must not be able to write attestations.
-    assert!(err.is_err());
+    // A non-admin caller triggers the SDK's authorization abort before the
+    // contract can return its own Result. That is the specific host failure we
+    // care about here: it is not a generic contract error.
+    assert!(matches!(err, Err(soroban_sdk::InvokeError::Abort { .. })));
 }
