@@ -26,7 +26,8 @@ evidence rather than to a number someone typed.
 Attestations are written by `assay attestation`, which derives severity, the
 mechanic bitset, and the evidence hash from a live scan, and `make attest`,
 which submits them. No path through either lets a hand-written severity reach
-the contract.
+the contract. The pipeline that would keep the registry continuously current
+is designed (not yet built) in [attestation-writer.md](attestation-writer.md).
 
 ## ABI
 
@@ -59,6 +60,14 @@ Severity values and mechanic bit positions are **ABI** and mirror
 `CONFISCATION_MASK = MECH_CLAWBACK_ENABLED`. Anything matching it has
 `severity >= SEVERITY_HIGH`, enforced at write time and re-checked at read time.
 
+One more value exists on the Go side and **never reaches the chain**:
+`mechanics.Unevaluated` (5) marks a report whose issuer flags were never read,
+so no capability statement exists at all. `attest.FromReport` refuses it with
+`ErrUnevaluated`, and the contract would reject it as `InvalidSeverity` anyway.
+The 0..4 table above is the complete on-chain ABI and is unchanged by this
+value's existence; it is there so that an unread flag can never be serialized
+as `SEVERITY_CLEAR`, the safest value in the table.
+
 ## Design decisions
 
 ### Assets are SAC addresses
@@ -85,14 +94,18 @@ and is at or below `max_severity`. Every other path returns `false`: never
 attested, stale, too severe, or internally inconsistent.
 
 The safe answer is the default, so a caller who gets the arguments wrong blocks
-rather than admits.
-
-### Staleness is the caller's policy
+rather than admits.### Staleness is the caller's policy
 
 `attested_at` is exposed and `max_age_secs` is a parameter rather than a
 contract constant. Assay does not silently serve stale safety, and it does not
-guess how fresh is fresh enough — a DEX listing gate and a large settlement have
-very different tolerances. `max_age_secs = 0` opts out explicitly.
+guess how fresh is fresh enough — a DEX listing gate and a large settlement
+have very different tolerances. `max_age_secs = 0` opts out explicitly.
+Recommended bands with reasoning, the re-attestation cadence, and consumer
+guidance are in [freshness.md](freshness.md).
+
+[freshness.md](freshness.md) is the guidance for picking a value: what changes
+under an attestation, how fast (measured, not guessed), and defensible windows
+per use class.
 
 ### The invariant is enforced twice
 
@@ -138,6 +151,18 @@ accountability	unknown|unverified|verified
 evidence	SOURCE	URL	CLAIM
 ```
 
+A report that binds its check set is written as `assay-evidence-v2`, which adds
+one line after `accountability`:
+
+```
+checks	ID,ID,...        (the checks the engine ran, sorted)
+```
+
+Reports produced before check-set binding carry no `checks` line and are still
+written as `v1`, so an attestation already on-chain keeps reproducing its hash.
+A verifier reads a report with no bound check set as *unknown*, never as
+complete.
+
 with one `evidence` line per attributed claim, sorted bytewise. Inside any
 field, `\` becomes `\\`, tab becomes `\t`, newline `\n`, carriage return `\r`.
 That escaping is load-bearing rather than tidy: a claim embeds third-party text
@@ -154,6 +179,27 @@ cost is that the hash cannot distinguish a fresh confirmation from a stale one
 
 The version line is inside the hash, so a future encoding change cannot produce
 bytes a verifier would silently compare against v1.
+
+#### The preimage binds the check set
+
+`Engine.Run` iterates whatever checks the engine holds, and a report used to
+commit only to the aggregate result and the evidence lines. That made a scan run
+with a check removed indistinguishable from one where the check ran and found
+nothing: DOGE is critical solely through the reputation check, so removing that
+check turns it clear, and a two-check engine could produce a report that hashed
+like a three-check one whose removed check changed no other field.
+
+The v2 encoding closes that: the sorted check IDs the engine ran are part of the
+preimage, so a report from a smaller engine hashes differently. `Report.CheckSet`
+carries them, and `attest.VerifyCheckSet` compares a report's bound set against
+the set a verifier expects, returning `CheckSetIncomplete` with the absent checks
+named — not a generic mismatch. A report with no bound set is
+`CheckSetUnknown`, reported as such rather than failed, because there is nothing
+to compare.
+
+The check-set binding is a v2 rather than an amendment to v1 deliberately: an
+attestation written under v1 omitted the check set entirely, and re-hashing it
+under a changed v1 format would break every existing attestation.
 
 ## Not done yet
 
