@@ -148,6 +148,7 @@ type Subject struct {
 	// evidence carries the time of the source it came from, and the report
 	// carries the time the subject assembly began.
 	ScannedAt time.Time
+	FetchedAt time.Time
 }
 
 // HomeDomain returns the issuer's advertised home_domain, if any.
