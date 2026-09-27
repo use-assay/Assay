@@ -156,6 +156,78 @@ fn init_is_single_shot() {
     assert_eq!(err, Ok(Error::AlreadyInitialized));
 }
 
+/// An empty forbidden_mask must NOT become a blanket allow for unattested
+/// assets. The gate still requires that an attestation exists.
+#[test]
+fn masked_gate_fails_closed_on_unattested_asset() {
+    let (env, client, _) = setup();
+    let asset = Address::generate(&env);
+
+    assert!(!client.is_safe_masked(&asset, &0, &0));
+    assert!(!client.is_safe_masked(&asset, &u32::MAX, &0));
+}
+
+#[test]
+fn masked_gate_admits_when_no_forbidden_bit_is_set() {
+    let (env, client, _) = setup();
+    let asset = Address::generate(&env);
+
+    // Freeze-capable but not confiscation-capable.
+    client.attest(&asset, &SEVERITY_MEDIUM, &MECH_AUTH_REVOCABLE, &hash(&env));
+
+    // A policy that only refuses confiscation admits this asset.
+    assert!(client.is_safe_masked(&asset, &POLICY_MASK_CONFISCATION_ONLY, &0));
+    // A freeze-inclusive policy refuses it.
+    assert!(!client.is_safe_masked(&asset, &POLICY_MASK_FREEZE_INCLUSIVE, &0));
+}
+
+#[test]
+fn masked_gate_blocks_confiscation_capable_asset() {
+    let (env, client, _) = setup();
+    let asset = Address::generate(&env);
+
+    client.attest(
+        &asset,
+        &SEVERITY_HIGH,
+        &(MECH_AUTH_REVOCABLE | MECH_CLAWBACK_ENABLED),
+        &hash(&env),
+    );
+
+    assert!(!client.is_safe_masked(&asset, &POLICY_MASK_CONFISCATION_ONLY, &0));
+    assert!(!client.is_safe_masked(&asset, &POLICY_MASK_FREEZE_INCLUSIVE, &0));
+}
+
+#[test]
+fn masked_gate_all_bits_blocks_any_attested_flag() {
+    let (env, client, _) = setup();
+    let clean = Address::generate(&env);
+    let dirty = Address::generate(&env);
+
+    // Zero flags: an all-bits mask admits it (no forbidden bit is set).
+    client.attest(&clean, &SEVERITY_CLEAR, &0, &hash(&env));
+    assert!(client.is_safe_masked(&clean, &u32::MAX, &0));
+
+    // Any flag set: an all-bits mask refuses it.
+    client.attest(&dirty, &SEVERITY_LOW, &MECH_AUTH_REQUIRED, &hash(&env));
+    assert!(!client.is_safe_masked(&dirty, &u32::MAX, &0));
+}
+
+#[test]
+fn masked_gate_stale_attestation_fails_closed() {
+    let (env, client, _) = setup();
+    let asset = Address::generate(&env);
+
+    env.ledger().set_timestamp(1_000);
+    client.attest(&asset, &SEVERITY_CLEAR, &0, &hash(&env));
+    assert!(client.is_safe_masked(&asset, &POLICY_MASK_CONFISCATION_ONLY, &600));
+
+    env.ledger().set_timestamp(1_000 + 601);
+    assert!(!client.is_safe_masked(&asset, &POLICY_MASK_CONFISCATION_ONLY, &600));
+
+    // max_age_secs = 0 disables the freshness requirement.
+    assert!(client.is_safe_masked(&asset, &POLICY_MASK_CONFISCATION_ONLY, &0));
+}
+
 /// A successful attest emits one event with topics ("attest", asset) and data
 /// (severity, flags, attested_at). Events published by this contract are
 /// isolated with filter_by_contract so any auth-machinery events elsewhere in

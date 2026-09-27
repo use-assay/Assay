@@ -54,6 +54,20 @@ pub const MECH_BLOCKLISTED: u32 = 1 << 5;
 /// this mask has `severity >= SEVERITY_HIGH` by construction.
 pub const CONFISCATION_MASK: u32 = MECH_CLAWBACK_ENABLED;
 
+/// Named forbidden-bit masks for [`SafetyRegistry::is_safe_masked`]. They exist
+/// so a caller expresses a policy ("I never accept confiscation") rather than
+/// hand-rolling bits. A caller may still pass any `u32`; these are the two
+/// documented shapes.
+///
+/// `POLICY_MASK_CONFISCATION_ONLY` refuses only confiscation capability. A
+/// protocol that can tolerate a freeze but never a clawback uses this mask.
+pub const POLICY_MASK_CONFISCATION_ONLY: u32 = MECH_CLAWBACK_ENABLED;
+
+/// `POLICY_MASK_FREEZE_INCLUSIVE` refuses both freeze and confiscation. A
+/// custody product that must never see a holder's balance altered by the
+/// issuer uses this mask.
+pub const POLICY_MASK_FREEZE_INCLUSIVE: u32 = MECH_AUTH_REVOCABLE | MECH_CLAWBACK_ENABLED;
+
 /// Event emitted on every successful `attest` write. Rejected attestations
 /// (`InvalidSeverity`, `InconsistentAttestation`, unauthorized caller) publish
 /// nothing, so observers never see writes that did not happen.
@@ -225,6 +239,46 @@ impl SafetyRegistry {
             let now = env.ledger().timestamp();
             // saturating_sub avoids underflow if an attestation carries a
             // timestamp ahead of the current ledger.
+            if now.saturating_sub(safety.attested_at) > max_age_secs {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    /// The mask-based fail-closed gate.
+    ///
+    /// Returns `true` only when an attestation exists, is fresh enough, and
+    /// carries none of the bits set in `forbidden_mask`. Every other path
+    /// returns `false`: never attested, stale, or forbidden bit set. An empty
+    /// `forbidden_mask` still requires an attestation — an unattested asset
+    /// must never read as safe, even with a policy that forbids nothing.
+    ///
+    /// Severity is a total order; policies are not. Severity-based gating with
+    /// `is_safe` collapses two independent questions ("can they freeze it?"
+    /// "can they take it?") onto one axis. A caller that can tolerate a freeze
+    /// but never a confiscation should gate on `POLICY_MASK_CONFISCATION_ONLY`;
+    /// a custody product refusing both should gate on
+    /// `POLICY_MASK_FREEZE_INCLUSIVE`. See `docs/contract-interface.md`.
+    ///
+    /// `max_age_secs` of 0 disables the freshness requirement.
+    pub fn is_safe_masked(
+        env: Env,
+        asset: Address,
+        forbidden_mask: u32,
+        max_age_secs: u64,
+    ) -> bool {
+        let Some(safety) = Self::get_safety(env.clone(), asset) else {
+            return false; // never attested: fail closed
+        };
+
+        if safety.flags & forbidden_mask != 0 {
+            return false;
+        }
+
+        if max_age_secs > 0 {
+            let now = env.ledger().timestamp();
             if now.saturating_sub(safety.attested_at) > max_age_secs {
                 return false;
             }
