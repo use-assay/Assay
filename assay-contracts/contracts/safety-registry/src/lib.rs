@@ -26,7 +26,9 @@
 //! listing escalates severity to [`SEVERITY_CRITICAL`]. Reputation can raise a
 //! level, never lower one.
 
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, BytesN, Env};
+use soroban_sdk::{
+    contract, contracterror, contractevent, contractimpl, contracttype, Address, BytesN, Env,
+};
 
 /// No authorization flags: the issuer has no special power over holders.
 pub const SEVERITY_CLEAR: u32 = 0;
@@ -51,6 +53,30 @@ pub const MECH_BLOCKLISTED: u32 = 1 << 5;
 /// Mechanics that let an issuer take a balance outright. Any asset matching
 /// this mask has `severity >= SEVERITY_HIGH` by construction.
 pub const CONFISCATION_MASK: u32 = MECH_CLAWBACK_ENABLED;
+
+/// Event emitted on every successful `attest` write. Rejected attestations
+/// (`InvalidSeverity`, `InconsistentAttestation`, unauthorized caller) publish
+/// nothing, so observers never see writes that did not happen.
+///
+/// Topics: `("attest", asset)`. The asset address is a topic (not a data
+/// field) so indexers can subscribe by asset without decoding every event.
+/// Two topics stay well within the SDK's four-topic limit.
+///
+/// Data is a `Map` keyed by field name for readability from RPC output. The
+/// exact shape is part of the observable ABI: see `docs/contract-interface.md`.
+#[contractevent(topics = ["attest"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Attested {
+    /// The attested asset, identified by its Stellar Asset Contract address.
+    #[topic]
+    pub asset: Address,
+    /// Capability severity written for the asset.
+    pub severity: u32,
+    /// Mechanic bitset written for the asset.
+    pub flags: u32,
+    /// Ledger timestamp of the write.
+    pub attested_at: u64,
+}
 
 /// A stored safety attestation for one asset.
 #[contracttype]
@@ -136,15 +162,28 @@ impl SafetyRegistry {
             return Err(Error::InconsistentAttestation);
         }
 
+        let attested_at = env.ledger().timestamp();
         let safety = Safety {
             severity,
             flags,
             evidence_hash,
-            attested_at: env.ledger().timestamp(),
+            attested_at,
         };
         env.storage()
             .persistent()
-            .set(&DataKey::Safety(asset), &safety);
+            .set(&DataKey::Safety(asset.clone()), &safety);
+
+        // Publish after the write. Emitting before would let a storage failure
+        // produce a visible "attest" for an attestation that does not exist;
+        // emitting after means indexers observe writes that actually happened.
+        // Rejected calls return early above, so no event is published for them.
+        Attested {
+            asset,
+            severity,
+            flags,
+            attested_at,
+        }
+        .publish(&env);
         Ok(())
     }
 

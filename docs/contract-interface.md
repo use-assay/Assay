@@ -45,6 +45,27 @@ pub fn attest(env: Env, asset: Address, severity: u32, flags: u32, evidence_hash
 pub fn init(env: Env, admin: Address) -> Result<(), Error>;
 ```
 
+### Attestation events
+
+Every successful `attest` publishes one Soroban event so indexers do not have
+to poll storage. Rejected calls (`InvalidSeverity`, `InconsistentAttestation`,
+unauthorized) publish nothing: observers must never see a write that did not
+happen.
+
+| Topic 0 | Topic 1 | Data |
+| --- | --- | --- |
+| `symbol_short!("attest")` | asset `Address` | `Map<Symbol, Val>` with keys `severity: u32`, `flags: u32`, `attested_at: u64` |
+
+The event is defined with the `#[contractevent]` macro on the `Attested` struct
+in the contract (see `assay-contracts/contracts/safety-registry/src/lib.rs`)
+so the schema is discoverable from the contract spec rather than only from
+this document.
+
+The asset address is a topic rather than a data-map field so an indexer can
+subscribe by asset without decoding every event body. The topic count is two,
+well within the SDK's four-topic limit, and `Symbol` is the required
+topic-0 shape for a filterable label.
+
 Severity values and mechanic bit positions are **ABI** and mirror
 `internal/mechanics` exactly. Do not renumber them.
 

@@ -1,7 +1,11 @@
 #![cfg(test)]
 
 use super::*;
-use soroban_sdk::{testutils::Address as _, testutils::Ledger as _, BytesN, Env};
+use soroban_sdk::{
+    symbol_short,
+    testutils::{Address as _, Events as _, Ledger as _},
+    vec, BytesN, Env, IntoVal, Map, Symbol,
+};
 
 fn setup() -> (Env, SafetyRegistryClient<'static>, Address) {
     let env = Env::default();
@@ -150,6 +154,68 @@ fn init_is_single_shot() {
 
     let err = client.try_init(&other).expect_err("second init must fail");
     assert_eq!(err, Ok(Error::AlreadyInitialized));
+}
+
+/// A successful attest emits one event with topics ("attest", asset) and data
+/// (severity, flags, attested_at). Events published by this contract are
+/// isolated with filter_by_contract so any auth-machinery events elsewhere in
+/// the environment do not confuse the assertion.
+#[test]
+fn attest_emits_event_on_success() {
+    let (env, client, _) = setup();
+    let asset = Address::generate(&env);
+    env.ledger().set_timestamp(1_234);
+
+    client.attest(&asset, &SEVERITY_MEDIUM, &MECH_AUTH_REVOCABLE, &hash(&env));
+
+    // Data is the Map produced by #[contractevent]: field-name Symbols to
+    // their values. Building it this way makes what a consumer decoding the
+    // event will see explicit.
+    let mut data = Map::<Symbol, soroban_sdk::Val>::new(&env);
+    data.set(Symbol::new(&env, "attested_at"), 1_234u64.into_val(&env));
+    data.set(
+        Symbol::new(&env, "flags"),
+        MECH_AUTH_REVOCABLE.into_val(&env),
+    );
+    data.set(
+        Symbol::new(&env, "severity"),
+        SEVERITY_MEDIUM.into_val(&env),
+    );
+
+    assert_eq!(
+        env.events().all().filter_by_contract(&client.address),
+        vec![
+            &env,
+            (
+                client.address.clone(),
+                (symbol_short!("attest"), asset).into_val(&env),
+                data.into_val(&env),
+            ),
+        ],
+    );
+}
+
+/// A rejected attestation must not publish an event; otherwise observers see
+/// writes that never happened.
+#[test]
+fn attest_publishes_no_event_on_rejection() {
+    let (env, client, _) = setup();
+    let asset = Address::generate(&env);
+
+    // InvalidSeverity.
+    let _ = client.try_attest(&asset, &(SEVERITY_CRITICAL + 1), &0, &hash(&env));
+    // InconsistentAttestation.
+    let _ = client.try_attest(
+        &asset,
+        &SEVERITY_MEDIUM,
+        &MECH_CLAWBACK_ENABLED,
+        &hash(&env),
+    );
+
+    assert_eq!(
+        env.events().all().filter_by_contract(&client.address),
+        vec![&env, /* empty: rejected attest calls must not emit events */],
+    );
 }
 
 /// attest() requires auth from the admin set at init time. A non-admin
