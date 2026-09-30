@@ -186,7 +186,8 @@ re-attesting. Three mechanisms, in increasing order of honesty:
    writes to the wrong contract ID.
 
 The runbook for these alerts is [#115](https://github.com/use-assay/Assay/issues/115);
-this design specifies what is observable, not who gets paged.
+source-specific outage response is in [source-outage.md](source-outage.md).
+This design specifies what is observable, not who gets paged.
 
 ## Dry-run mode
 
