@@ -119,6 +119,31 @@ jobs:
       # every PR. This comment exists so the absence is a recorded decision
       # rather than an oversight.
 
+  # Short exploratory fuzz runs on every push and PR. Long runs stay manual:
+  #   go test ./internal/scan/ -run Fuzz -fuzz FuzzParseAsset -fuzztime 10m
+  #   go test ./internal/sep1/ -run Fuzz -fuzz FuzzParseToml -fuzztime 10m
+  # Both parsers take untrusted input -- a CLI/API asset identifier and a
+  # stellar.toml from an issuer-controlled domain -- so a crash here costs the
+  # whole scan. A short run is seconds. The seed corpus is committed in the
+  # test files; a crasher the fuzzer writes under testdata/fuzz/ is committed
+  # too, after it is understood and any real defect is fixed or filed.
+  fuzz:
+    name: Fuzz (short)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: fuzz ParseAsset
+        run: go test ./internal/scan/ -run Fuzz -fuzz FuzzParseAsset -fuzztime 30s
+
+      - name: fuzz Parse
+        run: go test ./internal/sep1/ -run Fuzz -fuzz FuzzParseToml -fuzztime 30s
+
   lint:
     name: golangci-lint
     runs-on: ubuntu-latest
