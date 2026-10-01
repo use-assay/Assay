@@ -2,6 +2,7 @@ package mechanics
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/use-assay/assay/internal/sep1"

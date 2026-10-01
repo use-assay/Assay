@@ -462,7 +462,7 @@ func (f *Fetcher) fetch(ctx context.Context, target string) (*Doc, error) {
 
 	resp, err := f.HTTP.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("sep1: fetch %s: %w", target, err)
+		return nil, fmt.Errorf("sep1: %s: fetch %s: %w", CanonicalFailure(err), target, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
