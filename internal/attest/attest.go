@@ -22,9 +22,8 @@ import (
 	"github.com/use-assay/assay/internal/mechanics"
 )
 
-// PreimageVersion is the first line of every canonical preimage. It is part of
-// what gets hashed, so a future encoding change cannot silently produce a hash
-// that a verifier would compare against v1 bytes.
+// PreimageVersion is the original canonical format and remains the encoding
+// for reports that do not opt into newer bindings.
 const PreimageVersion = "assay-evidence-v1"
 
 // PreimageVersionCheckSet is the encoding used once a report binds its check
@@ -134,9 +133,12 @@ type ProvenanceStatus string
 // outcomes of evaluating a report's bound scanner version against the caller's
 // minimum.
 const (
-	ProvenanceValid   ProvenanceStatus = "valid"   // ProvenanceValid means the scanner version meets the caller's minimum.
-	ProvenanceInvalid ProvenanceStatus = "invalid" // Version below caller's minimum
-	ProvenanceUnknown ProvenanceStatus = "unknown" // No version recorded (pre-v2 attestation)
+	// ProvenanceValid means the scanner version meets the caller's minimum.
+	ProvenanceValid ProvenanceStatus = "valid"
+	// ProvenanceInvalid means the recorded version is below the caller's minimum.
+	ProvenanceInvalid ProvenanceStatus = "invalid"
+	// ProvenanceUnknown means no scanner version was recorded.
+	ProvenanceUnknown ProvenanceStatus = "unknown"
 )
 
 // ErrUnknownProvenance reports an attestation produced without version binding (pre-v2).
@@ -333,7 +335,6 @@ func Preimage(rep *mechanics.Report) string {
 	line(&b, "escalated", strconv.FormatBool(rep.Escalated))
 	line(&b, "mechanics", strconv.FormatUint(uint64(rep.Mechanics), 10))
 	line(&b, "accountability", string(rep.Accountability))
-
 	// The checks line is written for every report, v1 included: it is empty
 	// when the report binds no check set, which is the exact v1 byte shape,
 	// and carries the sorted bound set under v2/v3 so a verifier can name the
@@ -341,7 +342,6 @@ func Preimage(rep *mechanics.Report) string {
 	checks := append([]string(nil), rep.CheckSet...)
 	sort.Strings(checks)
 	line(&b, "checks", strings.Join(checks, ","))
-
 	// A bound network is written after the check set and before the evidence:
 	// the encoding is line-oriented, so a new field takes a fixed position and
 	// every earlier encoding must keep rendering byte-identically without it.
