@@ -47,7 +47,7 @@ The report is encoded into a canonical bytes buffer to produce the `evidence_has
 - The fields (asset, severity 4, base 0, escalated true, mechanics, accountability, checks) and all evidence claims are serialized into a tab-separated, LF-terminated format.
 - The `SHA-256` of these bytes becomes the `evidence_hash`.
 
-**Discarded here:** 
+**Discarded here:**
 - Retrieval timestamps (`RetrievedAt`) are completely excluded so the hash commits to the *claims*, not the *clock*.
 - Per-finding plain-language reasoning. The preimage only retains the structured evidence claims.
 

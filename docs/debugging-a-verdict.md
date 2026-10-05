@@ -198,12 +198,12 @@ curl -i -L https://circle.com/.well-known/stellar.toml
 Captured output:
 
 ```http
-HTTP/2 301 
+HTTP/2 301
 date: Mon, 28 Sep 2026 14:16:44 GMT
 content-type: text/html; charset=UTF-8
 location: https://www.circle.com/.well-known/stellar.toml
 
-HTTP/2 404 
+HTTP/2 404
 date: Mon, 28 Sep 2026 14:16:45 GMT
 content-type: text/html; charset=utf-8
 ```

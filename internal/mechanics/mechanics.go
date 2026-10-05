@@ -235,6 +235,23 @@ type Subject struct {
 	// that ran it and found nothing.
 	BlockedSkipped string
 
+	// ExpertAsset is StellarExpert's asset-level metadata (supply, trustline
+	// counters and the published rating) when it could be retrieved.
+	// ExpertAssetErr records why it could not, and ExpertAssetURL attributes
+	// either statement to the exact endpoint that made it. It is best-effort:
+	// an outage leaves ExpertAsset nil with a non-empty Err, the reputation
+	// check reports the gap as undetermined, and the scan itself still
+	// succeeds. The values are descriptive source data, never an Assay score,
+	// so they are evidence only and are not consulted by the severity rules.
+	//
+	// FetchedAt is when the endpoint answered; AttemptedAt is when it was
+	// asked, for failure evidence, which has no completion time to carry.
+	ExpertAsset            *stellarexpert.Asset
+	ExpertAssetURL         string
+	ExpertAssetErr         string
+	ExpertAssetFetchedAt   time.Time
+	ExpertAssetAttemptedAt time.Time
+
 	// AssetLists are the SEP-0042 curated lists consulted for this asset, one
 	// entry per configured list, in configuration order. Empty when no list is
 	// configured — which is the default, because shipping a default list would

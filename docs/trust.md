@@ -85,5 +85,3 @@ Assay answers **what an issuer can do**, never **what they will do**.
 - Consumers who require immunity from confiscation must gate on the bitset
   (`is_safe_masked` with `MECH_CLAWBACK_ENABLED`) rather than assuming a low
   severity means an issuer is trustworthy.
-
-

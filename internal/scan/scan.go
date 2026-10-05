@@ -25,8 +25,10 @@ import (
 )
 
 // DefaultFetchTimeout is the maximum duration allocated to any single source fetch.
-// Five total fetches (two sequential ledger fetches and three concurrent post-account fetches)
-// at 6s each sum to 30s, matching the outer context budget in main.go and api.go.
+// Six fetches run in total: two sequential ledger fetches, then four concurrent
+// post-account fetches. At 6s each the worst case is two sequential windows
+// plus one concurrent window, staying inside the outer 30-second context budget
+// in main.go and api.go.
 const DefaultFetchTimeout = 6 * time.Second
 
 // issuerRE matches a Stellar ed25519 public key.
@@ -257,6 +259,19 @@ func (s *Scanner) Subject(ctx context.Context, a mechanics.Asset) (*mechanics.Su
 	var (
 		wg sync.WaitGroup
 
+		// StellarExpert's asset metadata is fetched best-effort alongside the
+		// other post-account lookups. A network drop is recorded on the subject
+		// as an undetermined fetch — the scan itself never fails, and the
+		// reputation check reports the gap as undetermined rather than as a
+		// clean source. The rating is attributed evidence only: it can add a
+		// statement to the report but is never consulted by the upward-only
+		// severity rules.
+		expertAssetURL         string
+		expertAssetVal         *stellarexpert.Asset
+		expertAssetErr         string
+		expertAssetAttemptedAt time.Time
+		expertAssetFetchedAt   time.Time
+
 		tomlDoc         *sep1.Doc
 		tomlErr         string
 		tomlRefused     bool
@@ -342,7 +357,35 @@ func (s *Scanner) Subject(ctx context.Context, a mechanics.Asset) (*mechanics.Su
 		}
 	}()
 
+	// The asset endpoint is keyed on the asset itself, so it is always asked —
+	// unlike the domain-keyed lookups above, which need a home_domain. It runs
+	// with the rest of the concurrent group so that a slow or dead
+	// StellarExpert cannot serialise another fetch's timeout onto the scan.
+	expertAssetURL = s.Expert.AssetURL(a.Code, a.Issuer)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		expertAssetAttemptedAt = time.Now().UTC()
+		expertCtx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		expertAsset, err := s.Expert.Asset(expertCtx, a.Code, a.Issuer)
+		if err != nil {
+			// The drop is recorded and the scan moves on: this source is
+			// best-effort evidence, never a reason to fail a scan.
+			expertAssetErr = err.Error()
+			return
+		}
+		expertAssetVal = expertAsset
+		expertAssetFetchedAt = time.Now().UTC()
+	}()
+
 	wg.Wait()
+
+	sub.ExpertAssetURL = expertAssetURL
+	sub.ExpertAsset = expertAssetVal
+	sub.ExpertAssetErr = expertAssetErr
+	sub.ExpertAssetAttemptedAt = expertAssetAttemptedAt
+	sub.ExpertAssetFetchedAt = expertAssetFetchedAt
 
 	sub.TomlURL = tomlURL
 	sub.Toml = tomlDoc
