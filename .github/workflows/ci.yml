@@ -81,9 +81,11 @@ jobs:
   # run. CI's main job tests one pinned version (go.mod); contributors run
   # others. Map iteration order, strconv formatting and string sorting are
   # where a toolchain difference would surface, so the attest package — the
-  # golden byte comparison and its vectors — runs on one older and one newer
-  # Go version than the pin. A version that changes the bytes fails here
-  # instead of shipping as an unexplained hash mismatch.
+  # golden byte comparison and its vectors — runs on the pin and on one newer
+  # release. A toolchain that changes the bytes fails here instead of shipping
+  # as an unexplained hash mismatch. Both legs stay at or above the pin's
+  # floor (go.mod), which dropped the end-of-life 1.22 line; setup-go exports
+  # GOTOOLCHAIN=local, so a leg below the floor could not build the module.
   #
   # Deliberately narrow, so it does not meaningfully slow CI: this package
   # only, no race detector, no coverage, no matrix for the rest of the module.
@@ -96,7 +98,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        go-version: ["1.22.x", "1.27.x"]
+        go-version: ["1.25.x", "1.27.x"]
     steps:
       - uses: actions/checkout@v7.0.1
 
@@ -118,6 +120,31 @@ jobs:
       # a 14-mutation run would add minutes of noisy, advisory-only cost to
       # every PR. This comment exists so the absence is a recorded decision
       # rather than an oversight.
+
+  # Short exploratory fuzz runs on every push and PR. Long runs stay manual:
+  #   go test ./internal/scan/ -run Fuzz -fuzz FuzzParseAsset -fuzztime 10m
+  #   go test ./internal/sep1/ -run Fuzz -fuzz FuzzParseToml -fuzztime 10m
+  # Both parsers take untrusted input -- a CLI/API asset identifier and a
+  # stellar.toml from an issuer-controlled domain -- so a crash here costs the
+  # whole scan. A short run is seconds. The seed corpus is committed in the
+  # test files; a crasher the fuzzer writes under testdata/fuzz/ is committed
+  # too, after it is understood and any real defect is fixed or filed.
+  fuzz:
+    name: Fuzz (short)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: fuzz ParseAsset
+        run: go test ./internal/scan/ -run Fuzz -fuzz FuzzParseAsset -fuzztime 30s
+
+      - name: fuzz Parse
+        run: go test ./internal/sep1/ -run Fuzz -fuzz FuzzParseToml -fuzztime 30s
 
   lint:
     name: golangci-lint
