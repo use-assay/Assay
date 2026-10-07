@@ -30,9 +30,16 @@ type Label struct {
 	// maintainer learns what they broke rather than only seeing a number move.
 	Why string
 
-	Base           mechanics.Severity
-	Severity       mechanics.Severity
-	Escalated      bool
+	Base      mechanics.Severity
+	Severity  mechanics.Severity
+	Escalated bool
+	// Undetermined asserts whether the whole report is a partial answer: at
+	// least one check could not conclude because a source it depends on was
+	// unreachable. It is separate from the per-check Undetermined label so the
+	// aggregate state is pinned too, and so a report that is partial for an
+	// unexpected reason fails the eval rather than passing on a per-check
+	// coincidence.
+	Undetermined   bool
 	Accountability mechanics.Accountability
 
 	// Checks carries per-check expectations keyed by check ID. A subject with
@@ -179,12 +186,39 @@ func Corpus() []Label {
 			},
 		},
 		{
+			Dir: "doge-reputation-outage",
+			Why: "the regression from #23 expressed as a fixture: the same real DOGE " +
+				"trap as doge-noflags-scam, but the StellarExpert directory that " +
+				"carries its malicious tag is unavailable. The blocklist endpoint " +
+				"did answer ('not blocked'), which is exactly why this case matters: " +
+				"the source that would have escalated is the one that failed, so the " +
+				"honest verdict is undetermined, not clear. Before the directory.err " +
+				"marker existed this fixture was indistinguishable from a source that " +
+				"had answered 'not listed', which is how an outage was once reported " +
+				"as a clean reputation result.",
+			Base:           mechanics.Clear,
+			Severity:       mechanics.Clear,
+			Escalated:      false,
+			Undetermined:   true,
+			Accountability: mechanics.AccountabilityUnverified,
+			Checks: map[string]CheckLabel{
+				"capability": {Severity: mechanics.Clear},
+				"mutability": {Severity: mechanics.Clear},
+				"sep1-domain": {
+					Severity:  mechanics.Clear,
+					Mechanics: mechanics.MechDomainUnverified,
+				},
+				"reputation": {Undetermined: true},
+			},
+		},
+		{
 			Dir: "velo-no-home-domain",
 			Why: "an issuer account that carries no home_domain at all: the domain " +
 				"claim is absent rather than wrong, so accountability must be unknown " +
 				"not unverified, and severity must stay clear (#3)",
 			Base:           mechanics.Clear,
 			Severity:       mechanics.Clear,
+			Undetermined:   true,
 			Accountability: mechanics.AccountabilityUnknown,
 			Checks: map[string]CheckLabel{
 				"capability": {Severity: mechanics.Clear},
