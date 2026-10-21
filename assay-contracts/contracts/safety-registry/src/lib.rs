@@ -664,6 +664,52 @@ impl SafetyRegistry {
         Ok(())
     }
 
+    /// Removes the attestation for `asset`. Only the admin may revoke.
+    ///
+    /// After revocation, `get_safety` returns `None` for this asset, and every
+    /// gate fails closed. Revoked and never-attested are deliberately
+    /// indistinguishable on-chain: both return `None`.
+    ///
+    /// A revoke that fails (`NotAttested`, unauthorized caller) publishes nothing.
+    pub fn revoke(env: Env, asset: Address) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        let safety_key = DataKey::Safety(asset.clone());
+        if !env.storage().persistent().has(&safety_key) {
+            return Err(Error::NotAttested);
+        }
+
+        env.storage().persistent().remove(&safety_key);
+        Ok(())
+    }
+
+    /// Transfers the admin role to a new address.
+    ///
+    /// The new admin can attest and revoke. The previous admin loses this
+    /// capability. Admin transfer is atomic: the new admin is set immediately
+    /// and the old one is revoked in the same transaction.
+    ///
+    /// The caller must be the current admin; this is enforced by
+    /// `require_auth()` on the admin address below.
+    pub fn transfer_admin(env: Env, new_admin: Address) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+
+        // The admin must sign the transfer transaction.
+        admin.require_auth();
+
+        env.storage().instance().set(&DataKey::Admin, &new_admin);
+        Ok(())
+    }
+
     /// Reads the attestation for `asset`.
     ///
     /// Returns `None` when the asset has never been attested. That case is
