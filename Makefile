@@ -142,6 +142,11 @@ deploy-testnet: build-contract
 # hand-written value reach the contract.
 attest: build
 	@test -n "$(ASSET)" || { echo 'usage: make attest ASSET=CODE-ISSUER'; exit 2; }
+	@command -v stellar >/dev/null 2>&1 || { \
+		echo 'error: stellar CLI is required for make attest.' >&2; \
+		echo 'Install: https://developers.stellar.org/docs/build/smart-contracts/getting-started/setup' >&2; \
+		exit 2; \
+	}
 	@set -eu; \
 	params=$$(./$(BINARY) attestation -raw '$(ASSET)'); \
 	severity=$$(printf '%s' "$$params" | cut -f1); \
