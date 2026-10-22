@@ -14,6 +14,33 @@ It starts at step 0 rather than at the registry on purpose. The procedure is
 only as good as the scanner running it, and the scanner is itself a downloaded
 binary that has to be checked before it is trusted to check anything else.
 
+## Before you start
+
+You need a shell, network access to GitHub and Stellar testnet, the GitHub CLI
+(`gh`), `sha256sum`, and Stellar CLI **27.1.0**. Install `gh` from
+[cli.github.com](https://cli.github.com/) and Stellar CLI using the
+[official installation instructions](https://developers.stellar.org/docs/tools/stellar-cli).
+Check the installed version with `stellar --version`; the documented contract
+commands are pinned to 27.1.0. For step 0c, authenticate `gh` as a personal
+account that cannot write to this repository, as described in that step.
+
+First check that the project has a release to verify:
+
+```sh
+gh release list --repo use-assay/assay
+```
+
+If no release is listed, stop: step 0 cannot be completed and there is no
+published binary or provenance to verify. Do not substitute a locally built
+binary; it cannot establish the release provenance this procedure is about.
+The absence of a published release is tracked in
+[#278](https://github.com/use-assay/Assay/issues/278).
+
+Run the command blocks in the same shell. Step 0b changes the working directory
+to `assay-check`, which is where the downloaded `./assay` is used in steps 1–6.
+If you start a new shell, `cd` into `assay-check` before continuing and reset
+`REPO` where the instructions call for it.
+
 ## What you are checking, and what you are not
 
 Verification establishes exactly one thing: **the severity and flags stored
