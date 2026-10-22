@@ -13,7 +13,7 @@ CONTRACT_ID ?= CBK4FBIHMDTXCUPE4E3ZDVSFJSCY5FJETTKNIQPN4LFJIKKIBLKIXQ73
 .PHONY: all build build-release test test-notify test-preimage test-reproducibility cover lint fmt vet run clean \
 	offline-test e2e-standalone \
 	contract-test contract-lint contract-build \
-	build-contract deploy-testnet attest read verify-gate verify-wasm \
+	build-contract deploy-testnet attest read verify-gate verify-wasm check-stellar \
 	eval-record eval-compare
 
 all: build
@@ -135,12 +135,22 @@ deploy-testnet: build-contract
 	@echo "  stellar contract invoke --id <ID> --source-account $(SOURCE) \\"
 	@echo "    --network $(NETWORK) -- init --admin \$$(stellar keys address $(SOURCE))"
 
+# check-stellar guards the targets that shell out to the stellar CLI. Without
+# it, a missing binary surfaces as a bare "command not found" mid-recipe, with
+# no hint of what to install; this fails fast and points at the install docs
+# instead (#457).
+check-stellar:
+	@command -v stellar >/dev/null 2>&1 || { \
+		echo "error: the 'stellar' CLI was not found on your PATH. Install it from https://developers.stellar.org/docs/build/smart-contracts/getting-started/setup and re-run 'make attest'." >&2; \
+		exit 1; \
+	}
+
 # attest scans ASSET live and writes the result on-chain.
 #
 # Every number submitted comes from `assay attestation`, which derives severity,
 # the mechanic bitset, and evidence_hash from that scan. Nothing here lets a
 # hand-written value reach the contract.
-attest: build
+attest: check-stellar build
 	@test -n "$(ASSET)" || { echo 'usage: make attest ASSET=CODE-ISSUER'; exit 2; }
 	@set -eu; \
 	params=$$(./$(BINARY) attestation -raw '$(ASSET)'); \
