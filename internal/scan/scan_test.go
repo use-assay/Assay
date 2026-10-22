@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -34,6 +35,15 @@ func TestParseAsset(t *testing.T) {
 				t.Errorf("ParseAsset(%q) = %+v", in, a)
 			}
 		}
+		// A credit asset whose code merely happens to be XLM is an ordinary
+		// asset: only an identifier with no issuer half reads as native.
+		a, err := scan.ParseAsset("XLM-" + issuer)
+		if err != nil {
+			t.Fatalf("ParseAsset(\"XLM-%s\"): %v", issuer, err)
+		}
+		if a.Code != "XLM" || a.Issuer != issuer {
+			t.Errorf("ParseAsset(\"XLM-%s\") = %+v, want the code parsed as an ordinary asset", issuer, a)
+		}
 	})
 
 	t.Run("rejected", func(t *testing.T) {
@@ -50,6 +60,27 @@ func TestParseAsset(t *testing.T) {
 		} {
 			if _, err := scan.ParseAsset(in); !errors.Is(err, scan.ErrBadAsset) {
 				t.Errorf("ParseAsset(%q) error = %v, want ErrBadAsset", in, err)
+			}
+		}
+	})
+
+	// The native asset is understood, not malformed: it must be refused with
+	// the documented explanation — no issuer, no authorization flags, never
+	// scanned, never attested — and never with a parse error.
+	t.Run("native", func(t *testing.T) {
+		for _, in := range []string{"native", "Native", "XLM", "xlm", "xLm", "  XLM  "} {
+			_, err := scan.ParseAsset(in)
+			if !errors.Is(err, scan.ErrNativeAsset) {
+				t.Errorf("ParseAsset(%q) error = %v, want ErrNativeAsset", in, err)
+				continue
+			}
+			if errors.Is(err, scan.ErrBadAsset) {
+				t.Errorf("ParseAsset(%q) = %v, want an explanation of the ledger fact, not a parse error", in, err)
+			}
+			for _, want := range []string{"no issuer", "no authorization flags"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("ParseAsset(%q) error = %q, want it to say %q", in, err, want)
+				}
 			}
 		}
 	})
@@ -493,7 +524,11 @@ func (t *singleHostTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	u.Scheme = "http"
 	u.Host = t.host
 	req.URL = &u
-	return http.DefaultTransport.RoundTrip(req)
+	resp, err := http.DefaultTransport.RoundTrip(req)
+	if err != nil {
+		return nil, fmt.Errorf("round trip: %w", err)
+	}
+	return resp, nil
 }
 
 // TestSubjectRecordsSkippedBlocklistWhenNoHomeDomain covers the missing state
