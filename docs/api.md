@@ -270,6 +270,49 @@ Status codes:
 - `503 Service Unavailable`: degraded, unavailable, or unknown; see `status`
   and `upstreams` for which and why.
 
+## Readiness and registry freshness
+
+`GET /readyz` continues to report scan-source reachability in `status`,
+`reason`, and `upstreams`. It also returns `registry_staleness`, an
+informational snapshot of the configured attested set:
+
+```json
+{
+  "status": "stale",
+  "checked_at": "2026-10-23T06:00:00Z",
+  "window_secs": 86400,
+  "asset_count": 10,
+  "attested_count": 10,
+  "unattested_count": 0,
+  "stale_count": 2,
+  "oldest_attestation": {
+    "asset": "AQUA-GBNZ...",
+    "attested_at": "2026-10-20T12:00:00Z",
+    "age_secs": 237600
+  }
+}
+```
+
+`status` is `current` when every attestation is within the window, `stale`
+when one or more is older than the window, `incomplete` when an asset has no
+attestation and none is stale, or `unknown` when the set is not configured or
+an RPC read fails. Staleness is strictly older than the configured window;
+an attestation exactly at the boundary is current. `oldest_attestation` is the
+oldest present record; unattested assets are counted separately. An RPC
+failure makes the aggregate `unknown` rather than presenting partial counts.
+The registry status never changes the `/readyz` HTTP status or readiness
+`status`; readiness remains based on scan-source probes.
+
+The default set is [`attested.json`](../attested.json). Set
+`ASSAY_ATTESTED_SET` to use another attester config. Its `network` and
+`contract_id` identify the registry and determine the network-specific SAC
+addresses. The staleness window defaults to the config's `cadence` (or `24h`
+when cadence is empty) and can be overridden with `ASSAY_REGISTRY_STALE_AFTER`
+as a Go duration. `ASSAY_RPC_URL` selects the Soroban RPC endpoint (the
+registry reader's testnet endpoint is the default); use an endpoint for the
+configured registry network. Results share `/readyz`'s in-memory cache and
+are refreshed with readiness rounds, not on every scrape.
+
 ### `GET /`
 
 Serves the single-file UI: one embedded HTML page over the same API, for a

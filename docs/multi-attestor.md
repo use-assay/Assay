@@ -327,4 +327,3 @@ The open questions for Scheme C are resolved as follows:
 - **Contested visibility:**
   - `quorum()` returns `Quorum::Contested(count)` (where `count >= threshold`) when responding attestors disagree on severity or flags. Observers and the scanner pipeline can monitor quorum evaluation or poll `get_attestation` for active assets to alert when an attestor disagrees with consensus.
   - Conservative aggregation ensures that during a `Contested` condition, safety is preserved because danger is never lowered.
-

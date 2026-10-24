@@ -17,13 +17,16 @@ import (
 
 	"github.com/use-assay/assay/internal/api"
 	"github.com/use-assay/assay/internal/attest"
+	"github.com/use-assay/assay/internal/attester"
 	"github.com/use-assay/assay/internal/bundle"
 	// Aliased because this file already has a local history() for the CLI's
 	// evidence view; this package is the persisted observation store behind the
 	// HTTP endpoint, a different thing.
 	historystore "github.com/use-assay/assay/internal/history"
 	"github.com/use-assay/assay/internal/mechanics"
+	"github.com/use-assay/assay/internal/registry"
 	"github.com/use-assay/assay/internal/replay"
+	"github.com/use-assay/assay/internal/sac"
 	"github.com/use-assay/assay/internal/scan"
 )
 
@@ -542,6 +545,7 @@ func runServe(args []string, log *slog.Logger) error {
 	// records them in the observation history like any other evidence.
 	srv := api.NewServer(log)
 	srv.Scanner = newScanner(assetLists())
+	configureRegistryStaleness(srv, log)
 	if *historyPath != "" {
 		store, err := historystore.Open(*historyPath)
 		if err != nil {
@@ -580,5 +584,52 @@ func runServe(args []string, log *slog.Logger) error {
 			return fmt.Errorf("serve: shutdown: %w", err)
 		}
 		return nil
+	}
+}
+
+func configureRegistryStaleness(srv *api.Server, log *slog.Logger) {
+	configPath := envOr("ASSAY_ATTESTED_SET", "attested.json")
+	config, err := attester.LoadConfig(configPath)
+	if err != nil {
+		srv.RegistryStaleness = &api.RegistryStalenessProber{
+			ConfigurationError: fmt.Sprintf("attested-set config unavailable: %v", err),
+		}
+		log.Error("registry staleness reporting unavailable", "err", err)
+		return
+	}
+
+	window := envOr("ASSAY_REGISTRY_STALE_AFTER", config.Cadence)
+	if window == "" {
+		window = "24h"
+	}
+	staleAfter, err := time.ParseDuration(window)
+	if err != nil || staleAfter <= 0 {
+		if err == nil {
+			err = fmt.Errorf("duration must be positive")
+		}
+		srv.RegistryStaleness = &api.RegistryStalenessProber{
+			ConfigurationError: fmt.Sprintf("invalid ASSAY_REGISTRY_STALE_AFTER %q", window),
+		}
+		log.Error("registry staleness reporting unavailable", "window", window, "err", err)
+		return
+	}
+
+	assets := make([]api.RegistryAsset, 0, len(config.Assets))
+	for _, asset := range config.ParsedAssets() {
+		address, err := sac.Address(asset.Code, asset.Issuer, config.RegistryPassphrase())
+		if err != nil {
+			srv.RegistryStaleness = &api.RegistryStalenessProber{
+				ConfigurationError: fmt.Sprintf("derive SAC address for %s: %v", asset.String(), err),
+			}
+			log.Error("registry staleness reporting unavailable", "asset", asset.String(), "err", err)
+			return
+		}
+		assets = append(assets, api.RegistryAsset{Asset: asset.String(), SAC: address})
+	}
+
+	srv.RegistryStaleness = &api.RegistryStalenessProber{
+		Reader: registry.New(os.Getenv("ASSAY_RPC_URL"), envOr("ASSAY_CONTRACT_ID", config.ContractID)),
+		Assets: assets,
+		Window: staleAfter,
 	}
 }

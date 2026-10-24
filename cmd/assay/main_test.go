@@ -6,13 +6,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/use-assay/assay/internal/api"
 	"github.com/use-assay/assay/internal/attest"
 	"github.com/use-assay/assay/internal/mechanics"
+	"github.com/use-assay/assay/internal/registry"
+	"github.com/use-assay/assay/internal/sac"
 )
 
 const cliIssuer = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
@@ -63,6 +69,7 @@ func TestDispatch(t *testing.T) {
 		if err := runWith([]string{"scan", asset}, d); err != nil {
 			t.Fatalf("scan: %v", err)
 		}
+
 		var got mechanics.Report
 		if err := json.Unmarshal(out.Bytes(), &got); err != nil {
 			t.Fatalf("scan output is not JSON: %v", err)
@@ -123,6 +130,41 @@ func TestDispatch(t *testing.T) {
 			t.Error("no-args did not print usage")
 		}
 	})
+}
+
+func TestConfigureRegistryStaleness(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "attested.json")
+	config := fmt.Sprintf(`{
+		"network": "testnet",
+		"contract_id": "%s",
+		"cadence": "24h",
+		"assets": [{"asset": "USDC-%s"}]
+	}`, registry.DefaultContractID, cliIssuer)
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatalf("write attested-set config: %v", err)
+	}
+	t.Setenv("ASSAY_ATTESTED_SET", configPath)
+	t.Setenv("ASSAY_REGISTRY_STALE_AFTER", "12h")
+	t.Setenv("ASSAY_RPC_URL", "http://127.0.0.1:9000")
+	t.Setenv("ASSAY_CONTRACT_ID", "")
+
+	srv := api.NewServer(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	configureRegistryStaleness(srv, srv.Log)
+
+	if srv.RegistryStaleness == nil || srv.RegistryStaleness.ConfigurationError != "" {
+		t.Fatalf("registry config = %+v", srv.RegistryStaleness)
+	}
+	if srv.RegistryStaleness.Window != 12*time.Hour {
+		t.Errorf("window = %s, want 12h", srv.RegistryStaleness.Window)
+	}
+	if len(srv.RegistryStaleness.Assets) != 1 ||
+		srv.RegistryStaleness.Assets[0].Asset != "USDC-"+cliIssuer ||
+		!sac.IsContractAddress(srv.RegistryStaleness.Assets[0].SAC) {
+		t.Fatalf("configured registry assets = %+v", srv.RegistryStaleness.Assets)
+	}
+	if srv.RegistryStaleness.Reader == nil {
+		t.Fatal("registry reader was not configured")
+	}
 }
 
 // TestAttestationRawGolden pins the -raw format. The Makefile parses it

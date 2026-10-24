@@ -257,6 +257,9 @@ type Options struct {
 	// re-fetches both curated sources. Use it when a stale answer would be
 	// unacceptable and the extra requests are affordable.
 	NoReputationCache bool
+
+	// FetchTimeout bounds any single source fetch. Zero uses the default.
+	FetchTimeout time.Duration
 }
 
 // DefaultOptions returns the production cache policy.
@@ -264,6 +267,7 @@ func DefaultOptions() Options {
 	return Options{
 		ReputationDirectoryTTL: stellarexpert.DefaultDirectoryTTL,
 		ReputationBlocklistTTL: stellarexpert.DefaultBlocklistTTL,
+		FetchTimeout:           DefaultFetchTimeout,
 	}
 }
 

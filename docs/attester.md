@@ -33,7 +33,7 @@ go through `make attest`, one asset at a time.
 | --- | --- |
 | `network` | The **registry's** network: `testnet`, `pubnet`, `futurenet`, `standalone` or a full passphrase. The SAC address is derived for this network, not the scan's ([why](attestation-writer.md#2-what-is-signed)). |
 | `contract_id` | The registry contract. Validated as a `C…` address. |
-| `cadence` | The re-attestation schedule, as a Go duration. Recorded, not acted on by the dry-run. |
+| `cadence` | The re-attestation schedule, as a Go duration. Recorded, not acted on by the dry-run; `/readyz` uses it as the default staleness window for this set. |
 | `watch_interval` | How often `--watch` polls each issuer. Default `60s`. |
 | `horizon_url` | The Horizon `--watch` polls. Default pubnet, where the attested assets live. |
 | `fixtures_dir` | Offline mode: scan from committed fixtures instead of live sources. Each asset must then name its `fixture` subject. |

@@ -113,14 +113,23 @@ func TestIndependentEncoderMatchesGo(t *testing.T) {
 // agreement it never checked.
 func crossCheckPython(t *testing.T) string {
 	t.Helper()
-	python, err := exec.LookPath("python3")
-	if err != nil {
-		if os.Getenv("CI") != "" {
-			t.Fatalf("python3 is required for the cross-implementation check in CI: %v", err)
+	// Try python3 first (common on Linux/macOS), then python (common on Windows)
+	for _, cmd := range []string{"python3", "python"} {
+		python, err := exec.LookPath(cmd)
+		if err != nil {
+			continue
 		}
-		t.Skip("python3 not found; install python3 to run the cross-implementation check")
+		// Verify the interpreter actually works (Microsoft Store aliases on Windows
+		// may exist in PATH but fail when invoked via exec.Command).
+		if err := exec.Command(python, "-c", "import sys; print(sys.version)").Run(); err == nil {
+			return python
+		}
 	}
-	return python
+	if os.Getenv("CI") != "" {
+		t.Fatalf("python3 or python is required for the cross-implementation check in CI")
+	}
+	t.Skip("python3/python not found; install Python to run the cross-implementation check")
+	return ""
 }
 
 func crossCheckRepoRoot(t *testing.T) string {

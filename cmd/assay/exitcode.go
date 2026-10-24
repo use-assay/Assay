@@ -49,9 +49,9 @@ func usagef(format string, a ...any) error {
 func parseFlags(fs *flag.FlagSet, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			return err
+			return fmt.Errorf("%w", err)
 		}
-		return usagef("%s: %w", fs.Name(), err)
+		return usagef("%s: parse flags: %w", fs.Name(), err)
 	}
 	return nil
 }

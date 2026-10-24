@@ -25,7 +25,7 @@ func TestDocsUsageBlockMatchesBinary(t *testing.T) {
 	}
 
 	const startMarker = "```\nusage:\n"
-	text := string(doc)
+	text := strings.ReplaceAll(string(doc), "\r\n", "\n")
 	start := strings.Index(text, startMarker)
 	if start < 0 {
 		t.Fatalf("%s has no fenced usage block", docPath)

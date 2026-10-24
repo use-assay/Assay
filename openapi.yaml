@@ -1,4 +1,4 @@
-openapi: 3.0.3
+api: 3.0.3
 info:
   title: Assay API
   version: 1.0.0
@@ -553,6 +553,40 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/UpstreamStatus'
+        registry_staleness:
+          type: object
+          description: Informational registry freshness; does not affect readiness status.
+          required: [status, checked_at, window_secs, asset_count, attested_count, unattested_count, stale_count]
+          properties:
+            status:
+              type: string
+              enum: [current, stale, incomplete, unknown]
+            reason:
+              type: string
+            checked_at:
+              type: string
+              format: date-time
+            window_secs:
+              type: integer
+            asset_count:
+              type: integer
+            attested_count:
+              type: integer
+            unattested_count:
+              type: integer
+            stale_count:
+              type: integer
+            oldest_attestation:
+              type: object
+              required: [asset, attested_at, age_secs]
+              properties:
+                asset:
+                  type: string
+                attested_at:
+                  type: string
+                  format: date-time
+                age_secs:
+                  type: integer
     UpstreamStatus:
       type: object
       required: [name, kind, reachable, probe_url]

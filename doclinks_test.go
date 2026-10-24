@@ -180,7 +180,7 @@ func markdownFiles(repoRoot string) ([]string, error) {
 	files := []string{filepath.Join(repoRoot, "README.md")}
 	err := filepath.WalkDir(filepath.Join(repoRoot, "docs"), func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return err
+			return fmt.Errorf("walk %s: %w", path, err)
 		}
 		if !d.IsDir() && strings.EqualFold(filepath.Ext(path), ".md") {
 			files = append(files, path)

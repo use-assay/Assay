@@ -96,16 +96,19 @@ Two directions are worth stating explicitly because they are load-bearing:
 flowchart TD
     CMDASSAY["cmd/assay"] --> API["internal/api"]
     CMDASSAY --> ATTEST["internal/attest"]
+    CMDASSAY --> ATTESTER["internal/attester"]
     CMDASSAY --> BUNDLE["internal/bundle"]
     CMDASSAY --> DIFF["internal/differential"]
     CMDASSAY --> HIST["internal/history"]
     CMDASSAY --> HZ["internal/horizon"]
     CMDASSAY --> MECH["internal/mechanics"]
+    CMDASSAY --> REG["internal/registry"]
+    CMDASSAY --> SAC["internal/sac"]
     CMDASSAY --> REPLAY["internal/replay"]
     CMDASSAY --> SCAN["internal/scan"]
     CMDASSAY --> TEMP["internal/temporal"]
 
-    CMDATTESTER["cmd/assay-attester"] --> ATTESTER["internal/attester"]
+    CMDATTESTER["cmd/assay-attester"] --> ATTESTER
     CMDATTESTER --> HZ
     CMDATTESTER --> MECH
     CMDATTESTER --> SCAN
@@ -123,6 +126,7 @@ flowchart TD
     API --> HIST["internal/history"]
     API --> HZ["internal/horizon"]
     API --> MECH
+    API --> REG
     API --> SCAN["internal/scan"]
     API --> TEMP["internal/temporal"]
 
