@@ -1,7 +1,7 @@
 {
   "contracts": {
-    "assay_example_gate": 5822,
-    "assay_safety_registry": 18596
+    "assay_example_gate": 6209,
+    "assay_safety_registry": 26543
   },
   "stellar_cli": "28.1.0",
   "tolerance_percent": 10

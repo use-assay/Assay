@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"time"
@@ -381,8 +382,19 @@ func (c *Client) get(ctx context.Context, path string, out any) error {
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("horizon: get %s: status %d", path, resp.StatusCode)
 	}
-	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+	dec := json.NewDecoder(resp.Body)
+	if err := dec.Decode(out); err != nil {
 		return fmt.Errorf("horizon: decode %s: %w", path, err)
+	}
+	// Decode accepts a valid first value and silently ignores anything after
+	// it. A response is either one JSON document or a decode error, never a
+	// record extracted from a larger or malformed payload.
+	var extra json.RawMessage
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err == nil {
+			err = errors.New("unexpected data after top-level value")
+		}
+		return fmt.Errorf("horizon: decode %s: trailing data: %w", path, err)
 	}
 	return nil
 }

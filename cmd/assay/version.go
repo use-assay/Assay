@@ -113,7 +113,10 @@ func writeVersion(w io.Writer, s buildSettings) error {
 		s.VCSRevision,
 		s.VCSModified,
 	)
-	return err
+	if err != nil {
+		return fmt.Errorf("write version: %w", err)
+	}
+	return nil
 }
 
 // runVersion implements the version subcommand. It takes no flags of its

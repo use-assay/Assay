@@ -172,6 +172,7 @@ func FuzzAccountDecode(f *testing.F) {
 	f.Add(id, []byte(fmt.Sprintf(`{"account_id":%q,"flags":null}`, id)))                                                                                               // null flags
 	f.Add(id, []byte(fmt.Sprintf(`{"account_id":%q,"flags":{"auth_required":false,"auth_revocable":false,"auth_immutable":false,"auth_clawback_enabled":"no"}}`, id))) // non-boolean flag
 	f.Add(id, []byte(`{not json`))                                                                                                                                     // malformed
+	f.Add(id, append([]byte(horizonAccount(id)), 0xcc))                                                                                                                // valid record followed by trailing data
 	f.Add("", []byte(`{}`))
 
 	f.Fuzz(func(t *testing.T, id string, body []byte) {

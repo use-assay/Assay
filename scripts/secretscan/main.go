@@ -58,10 +58,12 @@ func ScanFiles(paths []string) ([]Finding, error) {
 	for _, path := range paths {
 		f, err := os.Open(path)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("open %s: %w", path, err)
 		}
 		found, err := ScanText(f, path)
-		f.Close()
+		if closeErr := f.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("close %s: %w", path, closeErr)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -81,7 +83,10 @@ func ScanText(r io.Reader, name string) ([]Finding, error) {
 			findings = append(findings, f)
 		}
 	}
-	return findings, scanner.Err()
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("scan %s: %w", name, err)
+	}
+	return findings, nil
 }
 
 func ScanDiff(r io.Reader) ([]Finding, error) {
@@ -113,7 +118,10 @@ func ScanDiff(r io.Reader) ([]Finding, error) {
 			inHunk = true
 		}
 	}
-	return findings, scanner.Err()
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("scan diff: %w", err)
+	}
+	return findings, nil
 }
 
 func hunkStart(header string) int {
