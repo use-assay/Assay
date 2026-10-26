@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -29,6 +30,14 @@ import (
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
+		var exitErr *commandExitError
+		if errors.As(err, &exitErr) {
+			if exitErr.err == nil {
+				os.Exit(exitErr.code)
+			}
+			fmt.Fprintln(os.Stderr, "assay:", exitErr.err)
+			os.Exit(exitErr.code)
+		}
 		fmt.Fprintln(os.Stderr, "assay:", err)
 		os.Exit(exitCodeForError(err))
 	}
@@ -79,6 +88,8 @@ func usage(w io.Writer) {
   assay registry-history [-rpc URL] [-contract C...] [-json] ASSET
                                   print the registry's attest/revoke events for an asset
                                   (CODE-ISSUER or SAC address), bounded by RPC event retention
+  assay verify-preimage [-version VERSION] HASH PREIMAGE
+                                  compare a stored hash with canonical preimage bytes
   assay serve [-addr] [-history PATH]
                                   serve the HTTP API and UI
   assay version                   print scanner identity, preimage encodings
@@ -134,6 +145,8 @@ func runWith(args []string, d commandDeps) error {
 		return runDiff(args[1:], d)
 	case "registry-history":
 		return runRegistryHistory(args[1:], d)
+	case "verify-preimage":
+		return runVerifyPreimage(args[1:])
 	case "serve":
 		return d.serve(args[1:], log)
 	case "version", "-version", "--version":

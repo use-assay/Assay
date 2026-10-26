@@ -21,6 +21,8 @@ usage:
   assay registry-history [-rpc URL] [-contract C...] [-json] ASSET
                                   print the registry's attest/revoke events for an asset
                                   (CODE-ISSUER or SAC address), bounded by RPC event retention
+  assay verify-preimage [-version VERSION] HASH PREIMAGE
+                                  compare a stored hash with canonical preimage bytes
   assay serve [-addr] [-history PATH]
                                   serve the HTTP API and UI
   assay version                   print scanner identity, preimage encodings
@@ -281,6 +283,31 @@ Semantics:
   0 unless `-guarantee` was given.
 - **unknown state** — an observation whose claim matches no known transition
   prints with transition `unknown` rather than being dropped.
+
+## assay verify-preimage
+
+Compares a stored SHA-256 evidence hash with canonical preimage bytes. `PREIMAGE`
+is a file path, or `-` to read the bytes from standard input. `-version` names
+the encoding version expected by the stored hash; without it, the verifier
+checks the current bytes and then tests the supported v1-v4 representation
+changes. This comparison only downgrades a supplied preimage, since newer
+encodings bind metadata that older versions do not contain.
+
+```
+./assay verify-preimage HASH preimage.txt
+./assay verify-preimage -version assay-evidence-v1 HASH preimage.txt
+./assay attestation -preimage CODE-ISSUER | jq -r .preimage | ./assay verify-preimage HASH -
+```
+
+The command prints one token and uses distinct exit codes for verification
+outcomes:
+
+- `MATCH` — exit 0; the preimage hashes to the stored hash.
+- `MISMATCH` — exit 1; neither the supplied encoding nor a supported
+  version-only recomputation matches.
+- `ENCODING_DIFFERS` — exit 2; the same evidence matches after recomputing
+  with an older supported encoding version.
+- Invalid arguments, unsupported versions, or unreadable input — exit 3.
 
 ## assay serve
 
