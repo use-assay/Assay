@@ -2,11 +2,14 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/use-assay/assay/internal/registry"
 )
 
 // Everything in this file answers one question — "can Assay do its job right
@@ -143,6 +146,9 @@ type HealthProber struct {
 	// upstreams is the set of upstreams this prober reports on, captured when
 	// the prober is built.
 	upstreams []upstream
+	// Registry checks the configured attested set. Its result is informational
+	// and never changes readiness status.
+	Registry *RegistryStalenessProber
 
 	mu      sync.Mutex
 	last    time.Time  // start of the most recent real probe round
@@ -160,7 +166,10 @@ type probeFlight struct {
 // NewHealthProber returns a prober wired to the same upstreams the server's
 // scanner reads from.
 func NewHealthProber(s *Server) *HealthProber {
-	return &HealthProber{upstreams: probeEndpoints(s)}
+	return &HealthProber{
+		upstreams: probeEndpoints(s),
+		Registry:  s.RegistryStaleness,
+	}
 }
 
 // now is the prober's clock, overridable in tests.
@@ -191,6 +200,149 @@ type Readiness struct {
 	// Upstreams reports one entry per checkable source, in the fixed order
 	// the prober was built with, so a diff between two answers is stable.
 	Upstreams []UpstreamStatus `json:"upstreams"`
+	// RegistryStaleness is informational. A stale or unavailable registry
+	// read never changes the readiness status.
+	RegistryStaleness RegistryStaleness `json:"registry_staleness"`
+}
+
+// RegistrySafetyReader reads one attestation from the configured registry.
+type RegistrySafetyReader interface {
+	GetSafety(context.Context, string) (*registry.Safety, error)
+}
+
+// RegistryAsset identifies one configured attested-set member and its
+// network-specific Stellar Asset Contract address.
+type RegistryAsset struct {
+	Asset string
+	SAC   string
+}
+
+// RegistryStalenessProber reads the configured attested set. The enclosing
+// HealthProber caches its result with the rest of the readiness round.
+type RegistryStalenessProber struct {
+	Reader RegistrySafetyReader
+	Assets []RegistryAsset
+	Window time.Duration
+	// ConfigurationError keeps a bad or unavailable local config visible as
+	// unknown without making the scanner unavailable.
+	ConfigurationError string
+}
+
+// RegistryStaleness describes freshness of the configured on-chain set.
+type RegistryStaleness struct {
+	Status            string             `json:"status"`
+	Reason            string             `json:"reason,omitempty"`
+	CheckedAt         time.Time          `json:"checked_at"`
+	WindowSecs        int64              `json:"window_secs"`
+	AssetCount        int                `json:"asset_count"`
+	AttestedCount     int                `json:"attested_count"`
+	UnattestedCount   int                `json:"unattested_count"`
+	StaleCount        int                `json:"stale_count"`
+	OldestAttestation *OldestAttestation `json:"oldest_attestation,omitempty"`
+}
+
+// OldestAttestation is the oldest present entry in the configured set.
+type OldestAttestation struct {
+	Asset      string    `json:"asset"`
+	AttestedAt time.Time `json:"attested_at"`
+	AgeSecs    int64     `json:"age_secs"`
+}
+
+// Check reads every configured set member and compares attested_at with the
+// configured window. Any RPC failure makes the aggregate unknown rather than
+// presenting partial counts as a complete set.
+func (p *RegistryStalenessProber) Check(ctx context.Context, now time.Time) RegistryStaleness {
+	windowSecs := int64(0)
+	assetCount := 0
+	if p != nil && p.Window > 0 {
+		windowSecs = int64(p.Window.Seconds())
+		if p.Window%time.Second != 0 {
+			windowSecs++
+		}
+	}
+	if p != nil {
+		assetCount = len(p.Assets)
+	}
+	unknown := func(reason string) RegistryStaleness {
+		return RegistryStaleness{
+			Status:     "unknown",
+			Reason:     reason,
+			CheckedAt:  now,
+			WindowSecs: windowSecs,
+			AssetCount: assetCount,
+		}
+	}
+	if p == nil {
+		return unknown("registry staleness is not configured")
+	}
+	if p.ConfigurationError != "" {
+		return unknown(p.ConfigurationError)
+	}
+	if p.Reader == nil || len(p.Assets) == 0 || p.Window <= 0 {
+		return unknown("registry staleness is not configured")
+	}
+
+	type result struct {
+		safety *registry.Safety
+		err    error
+	}
+	results := make([]result, len(p.Assets))
+	var wg sync.WaitGroup
+	for i, asset := range p.Assets {
+		wg.Add(1)
+		go func(i int, asset RegistryAsset) {
+			defer wg.Done()
+			results[i].safety, results[i].err = p.Reader.GetSafety(ctx, asset.SAC)
+		}(i, asset)
+	}
+	wg.Wait()
+
+	status := RegistryStaleness{
+		Status:     "current",
+		CheckedAt:  now,
+		WindowSecs: windowSecs,
+		AssetCount: len(p.Assets),
+	}
+	const maxUnixTimestamp = uint64(1<<63 - 1)
+	for i, res := range results {
+		switch {
+		case errors.Is(res.err, registry.ErrNotAttested):
+			status.UnattestedCount++
+			continue
+		case res.err != nil:
+			return unknown(fmt.Sprintf("registry RPC read failed for %s", p.Assets[i].Asset))
+		case res.safety == nil:
+			return unknown(fmt.Sprintf("registry returned no attestation result for %s", p.Assets[i].Asset))
+		case res.safety.AttestedAt > maxUnixTimestamp:
+			return unknown(fmt.Sprintf("registry returned an invalid attested_at for %s", p.Assets[i].Asset))
+		}
+
+		attestedAt := time.Unix(int64(res.safety.AttestedAt), 0).UTC()
+		age := now.Sub(attestedAt)
+		if age < 0 {
+			age = 0
+		}
+		status.AttestedCount++
+		if age > p.Window {
+			status.StaleCount++
+		}
+		if status.OldestAttestation == nil ||
+			attestedAt.Before(status.OldestAttestation.AttestedAt) {
+			status.OldestAttestation = &OldestAttestation{
+				Asset:      p.Assets[i].Asset,
+				AttestedAt: attestedAt,
+				AgeSecs:    int64(age.Seconds()),
+			}
+		}
+	}
+
+	switch {
+	case status.StaleCount > 0:
+		status.Status = "stale"
+	case status.UnattestedCount > 0:
+		status.Status = "incomplete"
+	}
+	return status
 }
 
 // UpstreamStatus is one source's reachability as the readiness round measured
@@ -277,7 +429,7 @@ func (p *HealthProber) Run(ctx context.Context) Readiness {
 		case <-ctx.Done():
 			// The caller gave up. Nothing is reported — in particular not
 			// healthy. The next caller runs the round.
-			return Readiness{Status: readyStateUnknown, CheckedAt: now}
+			return unknownReadiness(now)
 		}
 	}
 
@@ -327,6 +479,7 @@ func stampAge(ans *Readiness, now time.Time) {
 func (p *HealthProber) probeAll(ctx context.Context, now time.Time) Readiness {
 	ups := p.upstreams
 	results := make([]UpstreamStatus, len(ups))
+	var registryStatus RegistryStaleness
 
 	client := p.HTTP
 	if client == nil {
@@ -334,6 +487,11 @@ func (p *HealthProber) probeAll(ctx context.Context, now time.Time) Readiness {
 	}
 
 	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		registryStatus = p.Registry.Check(ctx, now)
+	}()
 	for i, u := range ups {
 		wg.Add(1)
 		go func(i int, u upstream) {
@@ -358,8 +516,9 @@ func (p *HealthProber) probeAll(ctx context.Context, now time.Time) Readiness {
 	}
 
 	ans := Readiness{
-		CheckedAt: now,
-		Upstreams: results,
+		CheckedAt:         now,
+		Upstreams:         results,
+		RegistryStaleness: registryStatus,
 	}
 	switch {
 	case horizonDown:
@@ -422,9 +581,10 @@ func (p *HealthProber) probeOne(ctx context.Context, client *http.Client, u upst
 // never healthy.
 func unknownReadiness(now time.Time) Readiness {
 	return Readiness{
-		Status:    readyStateUnknown,
-		Reason:    "the readiness round could not be observed; reported as unknown rather than as healthy",
-		CheckedAt: now,
+		Status:            readyStateUnknown,
+		Reason:            "the readiness round could not be observed; reported as unknown rather than as healthy",
+		CheckedAt:         now,
+		RegistryStaleness: RegistryStaleness{Status: "unknown", Reason: "readiness round could not be observed", CheckedAt: now},
 	}
 }
 

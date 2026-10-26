@@ -3,16 +3,19 @@ package api_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/use-assay/assay/internal/api"
+	"github.com/use-assay/assay/internal/registry"
 )
 
 // newProbeServer returns a Server whose scanner is wired to the given stub
@@ -79,11 +82,52 @@ func (s *upstreamStub) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte("ok"))
 }
 
+type registryStub struct {
+	mu      sync.Mutex
+	records map[string]*registry.Safety
+	errors  map[string]error
+	calls   int
+}
+
+func (s *registryStub) GetSafety(_ context.Context, asset string) (*registry.Safety, error) {
+	s.mu.Lock()
+	s.calls++
+	s.mu.Unlock()
+	if err := s.errors[asset]; err != nil {
+		return nil, err
+	}
+	record, ok := s.records[asset]
+	if !ok {
+		return nil, registry.ErrNotAttested
+	}
+	return record, nil
+}
+
+func (s *registryStub) Calls() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.calls
+}
+
 // readyBody is the decoded /readyz response.
 type readyBody struct {
-	Status    string `json:"status"`
-	Reason    string `json:"reason"`
-	AgeSecs   int64  `json:"age_secs"`
+	Status   string `json:"status"`
+	Reason   string `json:"reason"`
+	AgeSecs  int64  `json:"age_secs"`
+	Registry struct {
+		Status          string `json:"status"`
+		Reason          string `json:"reason"`
+		WindowSecs      int64  `json:"window_secs"`
+		AssetCount      int    `json:"asset_count"`
+		AttestedCount   int    `json:"attested_count"`
+		UnattestedCount int    `json:"unattested_count"`
+		StaleCount      int    `json:"stale_count"`
+		Oldest          *struct {
+			Asset      string    `json:"asset"`
+			AttestedAt time.Time `json:"attested_at"`
+			AgeSecs    int64     `json:"age_secs"`
+		} `json:"oldest_attestation"`
+	} `json:"registry_staleness"`
 	Upstreams []struct {
 		Name       string `json:"name"`
 		Kind       string `json:"kind"`
@@ -91,6 +135,88 @@ type readyBody struct {
 		ProbeError string `json:"probe_error"`
 		ProbeURL   string `json:"probe_url"`
 	} `json:"upstreams"`
+}
+
+func TestReadyzReportsAndCachesRegistryStaleness(t *testing.T) {
+	now := time.Date(2026, 10, 23, 6, 0, 0, 0, time.UTC)
+	horizon := httptest.NewServer(newUpstreamStub())
+	defer horizon.Close()
+	expert := httptest.NewServer(newUpstreamStub())
+	defer expert.Close()
+	reader := &registryStub{
+		records: map[string]*registry.Safety{
+			"sac-fresh": {AttestedAt: uint64(now.Add(-24 * time.Hour).Unix())},
+			"sac-stale": {AttestedAt: uint64(now.Add(-25 * time.Hour).Unix())},
+		},
+		errors: map[string]error{},
+	}
+	srv, _ := newProbeServer(horizon.URL, expert.URL)
+	srv.RegistryStaleness = &api.RegistryStalenessProber{
+		Reader: reader,
+		Assets: []api.RegistryAsset{
+			{Asset: "FRESH-G...", SAC: "sac-fresh"},
+			{Asset: "STALE-G...", SAC: "sac-stale"},
+			{Asset: "MISSING-G...", SAC: "sac-missing"},
+		},
+		Window: 24 * time.Hour,
+	}
+	srv.Health = api.NewHealthProber(srv)
+	srv.Health.Now = func() time.Time { return now }
+	h := srv.Handler()
+
+	_, body := getReadyz(h)
+	if body.Registry.Status != "stale" {
+		t.Fatalf("registry status = %q, want stale", body.Registry.Status)
+	}
+	if body.Registry.WindowSecs != 24*60*60 ||
+		body.Registry.AssetCount != 3 ||
+		body.Registry.AttestedCount != 2 ||
+		body.Registry.UnattestedCount != 1 ||
+		body.Registry.StaleCount != 1 {
+		t.Fatalf("unexpected registry counts: %+v", body.Registry)
+	}
+	if body.Registry.Oldest == nil ||
+		body.Registry.Oldest.Asset != "STALE-G..." ||
+		body.Registry.Oldest.AgeSecs != 25*60*60 {
+		t.Fatalf("oldest attestation = %+v", body.Registry.Oldest)
+	}
+
+	_, cached := getReadyz(h)
+	if cached.Registry.Status != "stale" || reader.Calls() != 3 {
+		t.Fatalf("cached registry status = %q; RPC reads = %d, want stale and 3",
+			cached.Registry.Status, reader.Calls())
+	}
+}
+
+func TestReadyzReportsRegistryRPCFailureAsUnknown(t *testing.T) {
+	horizon := httptest.NewServer(newUpstreamStub())
+	defer horizon.Close()
+	expert := httptest.NewServer(newUpstreamStub())
+	defer expert.Close()
+	reader := &registryStub{
+		records: map[string]*registry.Safety{},
+		errors:  map[string]error{"sac-fail": errors.New("provider credential must not be exposed")},
+	}
+	srv, _ := newProbeServer(horizon.URL, expert.URL)
+	srv.RegistryStaleness = &api.RegistryStalenessProber{
+		Reader: reader,
+		Assets: []api.RegistryAsset{{Asset: "USDC-G...", SAC: "sac-fail"}},
+		Window: 24 * time.Hour,
+	}
+	srv.Health = api.NewHealthProber(srv)
+	h := srv.Handler()
+
+	rec, body := getReadyz(h)
+	if rec.Code != http.StatusOK || body.Status != "ready" {
+		t.Fatalf("readiness = %d %q, want 200 ready despite registry outage", rec.Code, body.Status)
+	}
+	if body.Registry.Status != "unknown" ||
+		body.Registry.Reason != "registry RPC read failed for USDC-G..." {
+		t.Fatalf("registry failure status = %+v", body.Registry)
+	}
+	if strings.Contains(rec.Body.String(), "credential") {
+		t.Fatal("registry error response exposed provider credential detail")
+	}
 }
 
 func getReadyz(h http.Handler) (*httptest.ResponseRecorder, readyBody) {
