@@ -176,6 +176,16 @@ deploy-testnet: build-contract ## Deploy the contract to testnet and print the n
 	@echo "  stellar contract invoke --id <ID> --source-account $(SOURCE) \\"
 	@echo "    --network $(NETWORK) -- init --admin \$$(stellar keys address $(SOURCE))"
 
+# check-stellar guards the targets that shell out to the stellar CLI. Without
+# it, a missing binary surfaces as a bare "command not found" mid-recipe, with
+# no hint of what to install; this fails fast and points at the install docs
+# instead (#457).
+check-stellar:
+	@command -v stellar >/dev/null 2>&1 || { \
+		echo "error: the 'stellar' CLI was not found on your PATH. Install it from https://developers.stellar.org/docs/build/smart-contracts/getting-started/setup and re-run 'make attest'." >&2; \
+		exit 1; \
+	}
+
 # attest scans ASSET live and writes the result on-chain.
 #
 # Every number submitted comes from `assay attestation`, which derives severity,
