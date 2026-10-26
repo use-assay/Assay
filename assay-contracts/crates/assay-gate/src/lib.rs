@@ -45,6 +45,7 @@ pub struct Safety {
     pub flags: u32,
     pub evidence_hash: BytesN<32>,
     pub attested_at: u64,
+    pub preimage_version: u32,
 }
 
 /// The part of the registry this crate's callers use.
@@ -89,6 +90,9 @@ pub const CAPABILITY_MASK: u32 = MECH_AUTH_REQUIRED | MECH_AUTH_REVOCABLE | MECH
 /// Mechanics that let an issuer take a balance outright. Any asset matching
 /// this mask has `severity >= 3` by construction.
 pub const CONFISCATION_MASK: u32 = MECH_CLAWBACK_ENABLED;
+
+/// The maximum number of attestors accepted for quorum evaluation.
+pub const MAX_ATTESTORS: u32 = 16;
 
 // ---------------------------------------------------------------------------
 // The policy helper.
@@ -160,6 +164,7 @@ mod test {
             flags,
             evidence_hash: BytesN::from_array(&env, &[7u8; 32]),
             attested_at,
+            preimage_version: 0,
         }
     }
 

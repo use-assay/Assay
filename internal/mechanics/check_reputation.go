@@ -166,6 +166,33 @@ func (c ReputationCheck) Run(_ context.Context, s *Subject) (Finding, error) {
 		})
 	}
 
+	if s.ExpertAssetErr != "" {
+		unreachable = append(unreachable, "the asset metadata")
+		f.Evidence = append(f.Evidence, Evidence{
+			Source: "StellarExpert",
+			URL:    s.ExpertAssetURL,
+			Claim:  "not retrievable: " + s.ExpertAssetErr,
+			// The source never answered, so this is the attempt time — marked
+			// as such, because an attempt is not an answer.
+			RetrievedAt: NewCanonicalTime(s.ExpertAssetAttemptedAt),
+			Attempted:   true,
+		})
+	}
+
+	if s.ExpertAsset != nil {
+		rating := s.ExpertAsset.Rating
+		counts := s.ExpertAsset.Trustlines
+		f.Evidence = append(f.Evidence, Evidence{
+			Source: "StellarExpert",
+			URL:    s.ExpertAssetURL,
+			Claim: fmt.Sprintf("asset metadata: supply=%s, trustlines(total=%d, authorized=%d, funded=%d), rating(age=%d, activity=%d, trustlines=%d, liquidity=%d, volume7d=%d, interop=%d, average=%d)",
+				s.ExpertAsset.Supply, counts.Total, counts.Authorized, counts.Funded,
+				rating.Age, rating.Activity, rating.Trustlines, rating.Liquidity,
+				rating.Volume7d, rating.Interop, rating.Average),
+			RetrievedAt: NewCanonicalTime(s.ExpertAssetFetchedAt),
+		})
+	}
+
 	if s.Directory != nil {
 		tags := strings.Join(s.Directory.Tags, ", ")
 		f.Evidence = append(f.Evidence, Evidence{

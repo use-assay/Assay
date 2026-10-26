@@ -1,9 +1,13 @@
 package stellarexpert_test
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/use-assay/assay/internal/stellarexpert"
@@ -16,6 +20,7 @@ import (
 //
 // Bodies captured 2026-09-05 from api.stellar.expert.
 const (
+	bodyAsset = `{"asset":"USDC-GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN-1","code":"USDC","issuer":"GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN","supply":"3675875656477148","trustlines":{"total":2431888,"authorized":2431888,"funded":703330},"rating":{"age":10,"activity":10,"trustlines":10,"liquidity":10,"volume7d":10,"interop":4,"average":9}}`
 	// An address the directory holds no entry for. Note the 200: this endpoint
 	// does not 404 for an unknown address.
 	bodyUnlisted = `{}`
@@ -222,5 +227,130 @@ func TestRetryHorizonPathUnaffected(t *testing.T) {
 	c := stellarexpert.New(srv.URL)
 	if _, err := c.Directory(context.Background(), "GAROH4EV3WVVTRQKEY43GZK3XSRBEYETRVZ7SVG5LHWOAANSMCTJBB3U"); err == nil {
 		t.Fatal("a 503 from the consumed source was not retried")
+	}
+}
+
+func TestEmptyBlockedDomainResponseIsNotListed(t *testing.T) {
+	b, err := serve(t, http.StatusOK, `{}`).
+		BlockedDomain(context.Background(), "unknown.example")
+	if err != nil {
+		t.Fatalf("an empty response is a normal answer, not an error: %v", err)
+	}
+	if b.Value != nil {
+		t.Fatalf("empty response reported as a blocklist result: %+v", b.Value)
+	}
+}
+
+type responseClass uint8
+
+const (
+	responseFailed responseClass = iota
+	responseNotListed
+	responseListed
+)
+
+func classifyResponse(found bool, err error) responseClass {
+	if err != nil {
+		return responseFailed
+	}
+	if !found {
+		return responseNotListed
+	}
+	return responseListed
+}
+
+func fuzzClient(status uint16, body []byte) *stellarexpert.Client {
+	c := stellarexpert.New("https://example.test")
+	c.HTTP = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: int(status),
+			Body:       io.NopCloser(bytes.NewReader(body)),
+			Header:     make(http.Header),
+			Request:    req,
+		}, nil
+	})}
+	return c
+}
+
+func assertResponseClass(t *testing.T, class responseClass, err error) {
+	t.Helper()
+	switch class {
+	case responseListed:
+		if err != nil {
+			t.Fatalf("listed response also returned an error: %v", err)
+		}
+	case responseNotListed:
+		if err != nil {
+			t.Fatalf("not-listed response also returned an error: %v", err)
+		}
+	case responseFailed:
+		if err == nil {
+			t.Fatal("failed response did not return an error")
+		}
+	default:
+		t.Fatalf("response has unrecognized classification %d", class)
+	}
+}
+
+func FuzzDirectoryClassification(f *testing.F) {
+	directoryFixture, err := os.ReadFile(filepath.Join("..", "mechanics", "testdata", "aqua-clear-verified", "directory.json"))
+	if err != nil {
+		f.Fatalf("read directory fixture: %v", err)
+	}
+	f.Add(uint16(http.StatusOK), directoryFixture)
+	f.Add(uint16(http.StatusOK), []byte(bodyUnlisted))
+	f.Add(uint16(http.StatusOK), []byte("{"))
+	f.Add(uint16(http.StatusNotFound), []byte("{}"))
+
+	f.Fuzz(func(t *testing.T, status uint16, body []byte) {
+		entry, err := fuzzClient(status, body).Directory(context.Background(), address)
+		class := classifyResponse(entry.Value != nil, err)
+		assertResponseClass(t, class, err)
+		if class == responseListed && entry.Value.Address == "" {
+			t.Fatal("listed response has no address")
+		}
+	})
+}
+
+func FuzzBlockedDomainClassification(f *testing.F) {
+	blockedFixture, err := os.ReadFile(filepath.Join("..", "mechanics", "testdata", "aqua-clear-verified", "blocked.json"))
+	if err != nil {
+		f.Fatalf("read blocked-domain fixture: %v", err)
+	}
+	f.Add(uint16(http.StatusOK), blockedFixture)
+	f.Add(uint16(http.StatusOK), []byte(`{"domain":"aqua.network","blocked":false}`))
+	f.Add(uint16(http.StatusOK), []byte(`{}`))
+	f.Add(uint16(http.StatusOK), []byte("{"))
+	f.Add(uint16(http.StatusNotFound), []byte("{}"))
+
+	f.Fuzz(func(t *testing.T, status uint16, body []byte) {
+		result, err := fuzzClient(status, body).BlockedDomain(context.Background(), "aqua.network")
+		class := classifyResponse(result.Value != nil, err)
+		assertResponseClass(t, class, err)
+		if class == responseListed && result.Value.Domain == "" {
+			t.Fatal("listed response has no domain")
+		}
+	})
+}
+
+func TestAssetDecodesAndUsesPublicPath(t *testing.T) {
+	const issuer = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(bodyAsset))
+	}))
+	t.Cleanup(srv.Close)
+
+	asset, err := stellarexpert.New(srv.URL).Asset(context.Background(), "USDC", issuer)
+	if err != nil {
+		t.Fatalf("Asset: %v", err)
+	}
+	if got, want := gotPath, "/explorer/public/asset/USDC-"+issuer; got != want {
+		t.Fatalf("request path = %q, want %q", got, want)
+	}
+	if asset.Supply != "3675875656477148" || asset.Trustlines.Funded != 703330 || asset.Rating.Average != 9 {
+		t.Fatalf("asset decoded wrongly: %+v", asset)
 	}
 }

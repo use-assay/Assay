@@ -265,6 +265,19 @@ type Doc struct {
 	// like every other issuer-controlled string, and never interpreted by
 	// Assay; each is empty when the document does not declare it.
 	Documentation Documentation `toml:"DOCUMENTATION"`
+	// NetworkPassphrase is the network the document declares itself published
+	// for (NETWORK_PASSPHRASE), read verbatim. SEP-0001 lists it as a
+	// recommended root key: a document is written for exactly one network, and
+	// the passphrase is how it says which.
+	//
+	// It is parsed so the domain check can contradict it when it disagrees with
+	// the network the scan actually read from — a pubnet asset whose toml
+	// declares the testnet passphrase is a misconfiguration or an
+	// impersonation attempt, and either is worth surfacing (#370). Empty when
+	// the document does not declare the key, and an absence is never a
+	// mismatch: the field is optional, so silence claims nothing. Nothing
+	// interprets the value beyond that comparison.
+	NetworkPassphrase string `toml:"NETWORK_PASSPHRASE"`
 	// URL is the location the document was actually fetched from, after
 	// redirects. It can differ from the requested URL.
 	URL string `toml:"-"`
@@ -422,7 +435,7 @@ func (f *Fetcher) ResolveLinked(ctx context.Context, d *Doc, code, issuer string
 		res.Attempted++
 		doc, err := f.fetch(ctx, link)
 		if err != nil {
-			ld := LinkedDoc{URL: link, Err: err.Error(), Refused: errors.Is(err, ErrNonPublicHost)}
+			ld := LinkedDoc{URL: link, Err: CanonicalFailure(err), Refused: errors.Is(err, ErrNonPublicHost)}
 			res.Docs = append(res.Docs, ld)
 			continue
 		}
@@ -600,7 +613,7 @@ func (f *Fetcher) fetch(ctx context.Context, target string) (*Doc, error) {
 
 	resp, err := f.HTTP.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("sep1: fetch %s: %w", target, err)
+		return nil, fmt.Errorf("sep1: %s: fetch %s: %w", CanonicalFailure(err), target, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 

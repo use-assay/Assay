@@ -181,9 +181,12 @@ type ProvenanceStatus string
 // outcomes of evaluating a report's bound scanner version against the caller's
 // minimum.
 const (
-	ProvenanceValid   ProvenanceStatus = "valid"   // ProvenanceValid means the scanner version meets the caller's minimum.
-	ProvenanceInvalid ProvenanceStatus = "invalid" // Version below caller's minimum
-	ProvenanceUnknown ProvenanceStatus = "unknown" // No version recorded (pre-v2 attestation)
+	// ProvenanceValid means the scanner version meets the caller's minimum.
+	ProvenanceValid ProvenanceStatus = "valid"
+	// ProvenanceInvalid means the recorded version is below the caller's minimum.
+	ProvenanceInvalid ProvenanceStatus = "invalid"
+	// ProvenanceUnknown means no scanner version was recorded.
+	ProvenanceUnknown ProvenanceStatus = "unknown"
 )
 
 // ErrUnknownProvenance reports an attestation produced without version binding (pre-v2).

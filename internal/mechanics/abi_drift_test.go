@@ -247,7 +247,7 @@ func TestABIDriftCapabilityMask(t *testing.T) {
 }
 
 // TestABIDriftInterfaceVersion asserts that the interface version in the registry
-// contract source text matches the documented version (1).
+// contract source text matches the documented version (2).
 func TestABIDriftInterfaceVersion(t *testing.T) {
 	src, err := os.ReadFile(contractSourcePath(t))
 	if err != nil {
@@ -259,8 +259,8 @@ func TestABIDriftInterfaceVersion(t *testing.T) {
 	if !ok {
 		t.Fatal("rust INTERFACE_VERSION missing")
 	}
-	if got != 1 {
-		t.Errorf("INTERFACE_VERSION drift: got %d, want 1", got)
+	if got != 3 {
+		t.Errorf("INTERFACE_VERSION drift: got %d, want 3", got)
 	}
 }
 
@@ -302,6 +302,7 @@ func TestABIDriftSafetyStructShape(t *testing.T) {
 		{"flags", "u32"},
 		{"evidence_hash", "BytesN<32>"},
 		{"attested_at", "u64"},
+		{"preimage_version", "u32"},
 	}
 
 	if len(gotFields) != len(wantFields) {
@@ -348,6 +349,7 @@ func TestABIDriftIntegratorCrate(t *testing.T) {
 		"MECH_BLOCKLISTED",
 		"CAPABILITY_MASK",
 		"CONFISCATION_MASK",
+		"MAX_ATTESTORS",
 	}
 	for _, name := range names {
 		want, ok := registry[name]

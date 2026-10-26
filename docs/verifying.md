@@ -14,6 +14,33 @@ It starts at step 0 rather than at the registry on purpose. The procedure is
 only as good as the scanner running it, and the scanner is itself a downloaded
 binary that has to be checked before it is trusted to check anything else.
 
+## Before you start
+
+You need a shell, network access to GitHub and Stellar testnet, the GitHub CLI
+(`gh`), `sha256sum`, and Stellar CLI **27.1.0**. Install `gh` from
+[cli.github.com](https://cli.github.com/) and Stellar CLI using the
+[official installation instructions](https://developers.stellar.org/docs/tools/stellar-cli).
+Check the installed version with `stellar --version`; the documented contract
+commands are pinned to 27.1.0. For step 0c, authenticate `gh` as a personal
+account that cannot write to this repository, as described in that step.
+
+First check that the project has a release to verify:
+
+```sh
+gh release list --repo use-assay/assay
+```
+
+If no release is listed, stop: step 0 cannot be completed and there is no
+published binary or provenance to verify. Do not substitute a locally built
+binary; it cannot establish the release provenance this procedure is about.
+The absence of a published release is tracked in
+[#278](https://github.com/use-assay/Assay/issues/278).
+
+Run the command blocks in the same shell. Step 0b changes the working directory
+to `assay-check`, which is where the downloaded `./assay` is used in steps 1–6.
+If you start a new shell, `cd` into `assay-check` before continuing and reset
+`REPO` where the instructions call for it.
+
 ## What you are checking, and what you are not
 
 Verification establishes exactly one thing: **the severity and flags stored
@@ -282,7 +309,54 @@ The hash commits to the severity and the flags along with the evidence, so a
 matching hash with a differing severity cannot happen for an honest attestation;
 if you see it, you are comparing against the wrong record or the wrong network.
 
+### Optional: re-derive the issuer flags through a second ledger route
+
+Steps 3–5 compare Assay with itself: the same fetch-and-parse path produces both
+the evidence and the hash. A bug in that path can therefore produce a
+consistent, self-agreeing, wrong answer. `-differential` adds one independent
+reading of the fact every severity rests on — the issuer's authorization flags
+— through Soroban RPC rather than Horizon:
+
+```sh
+./assay verify -differential CODE-ISSUER
+./assay verify -differential -rpc https://rpc.example CODE-ISSUER   # non-default endpoint
+```
+
+It runs alongside steps 3–5, not instead of them, and the JSON verdict gains a
+`differential` object. The four states are the ones in
+[differential.md](differential.md):
+
+| State | What it means | What to do |
+| --- | --- | --- |
+| `agreement` | Horizon and Soroban RPC read the same flags | nothing; this is the only state that verifies the flag reading |
+| `disagreement` | both answered, differently | stop and investigate both values; verification exits 1 even if the hash agreed, and neither side is chosen for you |
+| `inconclusive_one_side` | exactly one route produced a reading | retry or verify on another host; an absence is not agreement |
+| `inconclusive_both_sides` | neither route produced a reading | nothing about the flags was verified; retry when the sources recover |
+
+An inconclusive differential read does not change the hash verdict's exit code,
+but it must never be read as agreement. A disagreement is a hard failure: it is
+the one signal that no single-source comparison can produce, and it can mean
+either the scanner misread the ledger or one of the two services is wrong.
+
 ### 6. Interpret
+
+For a machine-readable comparison of preimage bytes, save or pipe the preimage
+and use `assay verify-preimage`:
+
+```sh
+./assay attestation -preimage CODE-ISSUER | jq -r .preimage | ./assay verify-preimage HASH -
+./assay verify-preimage -version assay-evidence-v1 HASH preimage.txt
+```
+
+`MATCH` (exit 0) means the supplied preimage hashes to the stored hash.
+`MISMATCH` (exit 1) means the evidence bytes do not reproduce it.
+`ENCODING_DIFFERS` (exit 2) means the same preimage evidence matches when
+recomputed under an older supported v1-v4 encoding, identifying an
+encoding-version difference rather than reporting an unexplained mismatch.
+The optional `-version` is the encoding used when the stored hash was written;
+without it, the verifier tests older supported versions. Input
+or argument errors exit 3. These outcomes do not establish whether the evidence
+was honest or current; continue with the interpretation below.
 
 **valid — the hashes match.** The stored severity and flags are exactly the ones
 this evidence produces. The attestation corresponds to its stated evidence. This

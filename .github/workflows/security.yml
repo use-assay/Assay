@@ -17,6 +17,63 @@ permissions:
   issues: write
 
 jobs:
+  secret-scan:
+    name: Secret seeds
+    runs-on: ubuntu-latest
+    steps:
+      # actions/checkout@v5.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      # actions/setup-go@v6.0.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: scan the diff for Stellar secret seeds
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+          elif [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            base="${{ github.event.before }}"
+          else
+            base="$(git rev-parse HEAD^)"
+          fi
+          ./scripts/check-secret-seeds.sh "$base" "${{ github.sha }}"
+
+  cargo-audit:
+    name: cargo audit (RustSec)
+    runs-on: ubuntu-latest
+    steps:
+      # actions/checkout@v5.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: decide whether the lockfile changed
+        id: scope
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if git diff --name-only "${{ github.event.pull_request.base.sha }}...${{ github.sha }}" | grep -qx 'assay-contracts/Cargo.lock'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "assay-contracts/Cargo.lock is unchanged; skipping cargo audit."
+          fi
+
+      - name: install cargo-audit (pinned)
+        if: steps.scope.outputs.run == 'true'
+        run: cargo install cargo-audit --locked --version 0.22.2
+
+      - name: audit assay-contracts/Cargo.lock
+        if: steps.scope.outputs.run == 'true'
+        run: cargo audit --file assay-contracts/Cargo.lock
+
   govulncheck:
     name: govulncheck
     runs-on: ubuntu-latest

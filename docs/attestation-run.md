@@ -67,6 +67,10 @@ and seven carry some power. So `clear` is the overwhelmingly common answer on
 the network, and a sample that did not reflect that would be measuring the
 wrong thing.
 
+For a dated comparison of the 18 scan subjects and StellarExpert's numeric
+rating, including fresh scans of the full top-50 fixture, see
+[severity-rating-comparison.md](severity-rating-comparison.md).
+
 `DOGE` is the most informative row in the table: base severity `0`, final
 severity `4`. Capability analysis honestly returns `clear` for a known scam,
 because its issuer genuinely holds no power over a holder's balance. It is
@@ -277,12 +281,21 @@ measurable.
 
 ### `sep1-domain`
 
-- **`unverified` conflates two different facts.** "The `stellar.toml` could not
-  be fetched" and "it was fetched and does not claim this asset" both produce
-  `unverified`. The distinction survives only in the prose reasoning and the
-  evidence claim — a consumer switching on the JSON `accountability` field
-  cannot tell a broken web server from a refused claim. Both appear in this run:
-  USDC is a 404, BERKSHIRE is a DNS failure.
+- **`unverified` no longer conflates two different facts.** "The `stellar.toml`
+  could not be fetched" and "it was fetched and does not claim this asset" both
+  still produce `unverified`, but the report now also carries
+  `accountability_reason: "fetch_failed"` versus `"not_claimed"` (plus `"mismatch"`
+  when the advertised `home_domain` disagrees with the curated directory, and
+  `"no_home_domain"` with `accountability: "unknown"` when none was advertised).
+  A consumer switching on the JSON fields can now tell a broken web server from a
+  refused claim without reading the reasoning text. Both cases appear in this
+  run: USDC is a 404 (`fetch_failed`), BERKSHIRE is a DNS failure
+  (`fetch_failed`). The distinction survives in the attributed evidence claim as
+  well (`not retrievable: status 404` versus `CURRENCIES lists ... none
+  matching`). The `accountability` preimage line is unchanged
+  (`unknown`/`unverified`/`verified`) and `accountability_reason` is report
+  metadata, not part of the hashed evidence preimage — there is no encoding
+  bump ([contract-interface](contract-interface.md#report-fields-outside-the-preimage)).
 - **Linked currency files are not followed.** A `stellar.toml` may point to a
   per-currency file rather than inline the entry. Assay reports that as
   unconfirmed rather than refuted, counting every entry that carries a `toml`
@@ -466,12 +479,19 @@ text: BERKSHIRE, DOGE and KALE. A fourth, REPO, commits to a TOML parser error
 about the remote file, which is stable only for as long as that file is
 unchanged.
 
-**Status: not fixed, deliberately.** The fix is to normalise transport errors to
-a stable form before they enter the preimage, which changes the preimage and so
-requires an `assay-evidence-v2` version bump and re-attestation of BERKSHIRE.
-That is a larger change than it looks and is not being rushed into the same
-sitting that found it. Tracked as
-[#24](https://github.com/use-assay/Assay/issues/24).
+**Migration.** `assay-evidence-v1` attestations preserve the historical raw
+transport text and are verifiable only with v1 rules. In particular, the
+historical BERKSHIRE hash remains
+`dc2bbf0849dfc001c44be9a5de4fe19c39300e5c4735c9ed3311b3d214171a0d`.
+Operators must either retain the v1 preimage and verifier for that attestation,
+or re-attest BERKSHIRE under v2 and record both hashes side by side. New v2
+preimages use only closed canonical failure categories such as `dns-failure`,
+`connection-refused`, `tls-failure`, `timeout`, and `status N`; raw transport
+errors remain diagnostics and are excluded from the hash.
+
+The committed vectors under `internal/attest/testdata/vectors/` include a v1
+legacy profile and v2 profile bytes plus their SHA-256 digests. The version line
+is part of each preimage, so a verifier must select the matching ruleset.
 
 ---
 

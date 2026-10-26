@@ -82,6 +82,26 @@ Recommended but **not yet done** (do not read these as claims):
    [multi-attestor.md](multi-attestor.md#recommendation) — before widening
    attested-asset coverage.
 
+## Secret scanning in CI
+
+CI scans every added line in a pull request or push for a Stellar secret seed:
+an `S` followed by 55 base32 characters. It then validates the strkey version
+byte and CRC-16 checksum, so an arbitrary `S…` string does not fail the build
+and a public `G…` account address cannot match in the first place. The logic is
+in `scripts/secretscan` and the diff wrapper is
+`scripts/check-secret-seeds.sh`; run it against any range with:
+
+```sh
+./scripts/check-secret-seeds.sh main HEAD
+```
+
+A genuine false positive — for example a published test vector that really is
+a valid seed — is escaped by putting `secret-scan: allow-seed` on that line.
+The marker skips only the line it appears on, and it should be justified in the
+pull request. Never use it for a live key: a valid seed committed with the
+marker is still a leaked key, and the marker only tells the scanner not to
+block the commit.
+
 ## Semantics
 
 - **Valid state** — key available and controlled: attestation proceeds via
@@ -205,7 +225,8 @@ says otherwise.
    very key you have declared compromised, so the attacker can submit it too,
    or overwrite your pending admin with their own before it is accepted. A
    handshake rotation is for a *planned* key change with a healthy admin, not
-   for a compromise. The compromised admin has no power over the new registry.
+   for a compromise (see [threat-model.md attack class 14](threat-model.md#14-permanent-takeover-via-the-pending-admin-window-transfer_admin)).
+   The compromised admin has no power over the new registry.
 4. **Leave the old registry in place and mark it superseded** in
    [deployment.md](deployment.md). It cannot be deleted or frozen from the
    outside; the protection for its remaining readers is the same

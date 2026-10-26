@@ -37,6 +37,9 @@ type Server struct {
 	// pointer so a test can wire the prober to a stub upstream; when nil,
 	// handleReadyz builds one from the server's own clients.
 	Health *HealthProber
+	// RegistryStaleness reads the configured attested set for /readyz. Its
+	// result is informational and does not affect scan readiness.
+	RegistryStaleness *RegistryStalenessProber
 	// Metrics holds the scan outcome and per-source failure counters served
 	// at GET /metrics. Nil-safe: the handlers treat a nil Metrics as
 	// "nothing counted", never as a crash.
@@ -76,6 +79,12 @@ var Routes = []string{
 // per-request logger — the correlation the outcome log line depends on is
 // installed once, here, rather than remembered per handler.
 func (s *Server) Handler() http.Handler {
+	// Build the prober once after callers have had a chance to configure the
+	// scanner and registry reader. Rebuilding it per request would bypass its
+	// cache and turn /readyz scrapes into upstream and RPC traffic.
+	if s.Health == nil {
+		s.Health = NewHealthProber(s)
+	}
 	mux := http.NewServeMux()
 	// Exposure is one request to many scans, so it is wrapped in the rate
 	// limit at registration — the bucket is built once per Handler, not per

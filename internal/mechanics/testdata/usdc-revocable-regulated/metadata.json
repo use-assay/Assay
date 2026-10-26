@@ -7,7 +7,8 @@
     {"file": "account.json", "url": "https://horizon.stellar.org/accounts/GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", "captured": "2026-08-10"},
     {"file": "stellar.toml.status", "url": "https://circle.com/.well-known/stellar.toml", "captured": "2026-08-10", "note": "the endpoint did not answer 200 at capture time (HTTP 404), so reciprocal SEP-1 verification fails by the letter of the spec"},
     {"file": "blocked.json", "url": "https://api.stellar.expert/explorer/directory/blocked-domains/circle.com", "captured": "2026-08-10"},
-    {"file": "directory.json", "url": "https://api.stellar.expert/explorer/directory/GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", "captured": "2026-08-10"}
+    {"file": "directory.json", "url": "https://api.stellar.expert/explorer/directory/GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", "captured": "2026-08-10"},
+    {"file": "stellar-expert-asset.json", "url": "https://api.stellar.expert/explorer/public/asset/USDC-GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", "captured": "2026-09-25"}
   ],
   "expected": {
     "state": "valid",

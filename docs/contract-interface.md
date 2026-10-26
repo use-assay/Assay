@@ -42,6 +42,7 @@ pub struct Safety {
     pub flags: u32,                // mechanic bitset
     pub evidence_hash: BytesN<32>, // sha256 of the evidence bundle
     pub attested_at: u64,          // ledger timestamp
+    pub preimage_version: u32,     // encoding version used to produce evidence_hash
 }
 
 // One element of an attest_many batch: the arguments of attest(), grouped.
@@ -58,7 +59,7 @@ pub const MAX_BATCH_SIZE: u32 = 50;
 
 /// The contract's interface version, bumped on every ABI change. See
 /// "Interface versioning" below for the bump rule.
-pub const INTERFACE_VERSION: u32 = 2;
+pub const INTERFACE_VERSION: u32 = 3;
 
 pub fn get_safety(env: Env, asset: Address) -> Option<Safety>;
 pub fn version(env: Env) -> u32;
@@ -72,6 +73,8 @@ pub fn init(env: Env, admin: Address) -> Result<(), Error>;
 pub fn transfer_admin(env: Env, new_admin: Address) -> Result<(), Error>;
 pub fn accept_admin(env: Env) -> Result<(), Error>;
 pub fn cancel_admin_transfer(env: Env) -> Result<(), Error>;
+pub fn admin(env: Env) -> Option<Address>;
+pub fn pending_admin(env: Env) -> Option<Address>;
 ```
 
 The `Vec<Attestation>` argument is confirmed against the built artifact rather
@@ -83,7 +86,7 @@ struct is a supported argument type in soroban-sdk 27.
 ## Interface versioning
 
 `version()` is a read-only entrypoint that returns the contract's interface
-version (`INTERFACE_VERSION`), currently `2`. A consumer or a drift script can
+version (`INTERFACE_VERSION`), currently `3`. A consumer or a drift script can
 call it to ask "what is this contract?" instead of inferring the interface from
 a wasm hash.
 
@@ -112,6 +115,7 @@ drift test, so it cannot drift from the deployed interface without a red build.
 | `NotAttested` | 5 | `revoke` for an asset with no attestation |
 | `NoPendingAdmin` | 6 | `accept_admin` or `cancel_admin_transfer` with no pending transfer |
 | `BatchTooLarge` | 7 | `attest_many` with more than `MAX_BATCH_SIZE` elements |
+| `InvalidAsset` | 8 | `attest`, `attest_many` with the registry's own address, the admin's address, or a non-contract address |
 
 ### `attest_many`: many attestations in one transaction
 
@@ -124,8 +128,9 @@ Every element is written exactly as `attest` writes it — the same
 event — and both entrypoints call the same validation function. A batch is
 **not** a lower bar:
 
-- `InvalidSeverity` and `InconsistentAttestation` are the same checks, on every
-  element. There is no batch path around the confiscation invariant.
+- `InvalidAsset`, `InvalidSeverity` and `InconsistentAttestation` are the same
+  checks, on every element. There is no batch path around the address rule or
+  the confiscation invariant.
 - `require_auth` on the admin is required, as for `attest`. An empty batch is
   authorized too: who may call an entrypoint is a property of the entrypoint,
   not of what it was handed.
@@ -164,8 +169,8 @@ the same enforcement the SDK applies in the tests:
 | ledger entries written | 200 | 51 | 26% |
 | transaction footprint entries | 400 | 105 | 26% |
 | bytes written | 132 096 | 14 072 | 11% |
-| instructions | 400 000 000 | 3 275 513 | 0.8% |
-| memory | 41 943 040 | 514 609 | 1.2% |
+| instructions | 400 000 000 | 3 383 545 | 0.8% |
+| memory | 41 943 040 | 544 276 | 1.3% |
 
 Each element publishes its own `Attested` event and one such event is exactly
 200 bytes, so the event budget admits **at most 81 elements** however frugal the
@@ -186,6 +191,41 @@ full batch with the SDK's mainnet resource enforcement switched on (which
 `Env::default` enables), asserts it fits every limit, and pins the 200-byte
 per-event cost so the cap is re-derived rather than silently wrong if the event
 or the write path changes.
+
+#### Per-entrypoint cost baseline
+
+The network limits above are only useful if the common calls stay comfortably
+inside them. [`cost-baseline.json`](../assay-contracts/contracts/safety-registry/cost-baseline.json)
+records the measured cost of each consumer-facing entrypoint, and
+`entrypoint_costs_are_within_the_recorded_baseline` re-measures them and fails
+when CPU instructions, memory, read bytes or write bytes grow by more than 10%
+over the committed value.
+
+| Entrypoint | CPU instructions | Memory (bytes) | Read bytes | Write bytes |
+| --- | --- | --- | --- | --- |
+| `attest` | 58 301 | 8 974 | 0 | 352 |
+| `attest_many(50)` | 3 383 545 | 544 276 | 0 | 14 072 |
+| `get_safety` | 25 417 | 3 524 | 0 | 0 |
+| `is_safe` | 21 409 | 3 148 | 0 | 0 |
+| `is_safe_masked` | 21 855 | 3 148 | 0 | 0 |
+
+The numbers come from the SDK's `env.cost_estimate().resources()` after the
+call in isolation, in the same units the network limits use. Read bytes are
+`disk_read_bytes`; live Soroban entries are served from memory in the test
+host, so that number is zero there even though an entry read still costs
+instructions and a memory-entry read. `is_safe` and `is_safe_masked` write
+nothing, so a gate's cost is paid entirely by the consuming transaction.
+
+Run the check with:
+
+```sh
+cargo test --locked -p assay-safety-registry cost
+```
+
+A change that intentionally moves cost beyond the tolerance updates the
+baseline with `UPDATE_COST_BASELINE=1 cargo test -p assay-safety-registry cost`
+and includes the reason in the same commit. Raising the baseline without a
+reason is exactly the silent regression the check exists to prevent.
 
 #### Empty batches, and one timestamp per batch
 
@@ -323,9 +363,13 @@ is the first on-chain trace. `cancel_admin_transfer` publishes one
 handover is observable. A transfer or cancellation moves the admin role only —
 the stored attestations are untouched and `get_safety` keeps serving them.
 
-**The live testnet deployment predates all three entrypoints.**
+The current admin and pending admin can be read at any time without decoding instance storage:
+- **`admin()`** returns `Option<Address>` (`Some(Address)` after `init`, `None` before).
+- **`pending_admin()`** returns `Option<Address>` (`Some(Address)` during an active transfer handshake, `None` otherwise).
+
+**The live testnet deployment predates all five entrypoints.**
 `CBK4FBIH…` was deployed on 2026-08-15, before `transfer_admin`,
-`accept_admin`, and `cancel_admin_transfer` existed, and it has no upgrade
+`accept_admin`, `cancel_admin_transfer`, `admin`, and `pending_admin` existed, and it has no upgrade
 entrypoint to receive them. Calling any of them against the live contract fails
 as an unknown entrypoint, and rotating the live admin still means a new deployment
 and re-attestation — see
@@ -391,6 +435,14 @@ subscribe by asset without decoding every event body. The topic count is two,
 well within the SDK's four-topic limit, and `Symbol` is the required
 topic-0 shape for a filterable label.
 
+### Event budget impact
+
+Both admin-transfer events carry two addresses and a timestamp. They are
+published once per single (non-batched) admin call, so they do not affect the
+`attest_many` event budget; that cap is measured separately by
+`batch_size_bound_is_measured_and_holds_headroom` and leaves headroom for the
+event schema to grow.
+
 Severity values and mechanic bit positions are **ABI** and mirror
 `internal/mechanics` exactly. Do not renumber them.
 
@@ -423,6 +475,48 @@ code+issuer string pair. Verified live on Horizon (first recorded 2026-08-11,
 re-checked 2026-09-17): Circle's USDC has a canonical
 `contract_id` of `CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75`.
 `Address` comparison is cheap on-chain; string handling is not.
+
+**Decision (#349): `attest` refuses three kinds of address, and refuses to
+guess past them.** Storage is keyed by any `Address`, so a write aimed at the
+wrong address is fail-closed for the real asset — `get_safety` on the real SAC
+still returns `None` and every gate still refuses — but it is not harmless: it
+pays rent on an entry nobody will read as this asset, publishes an `Attested`
+event naming an address that is not this asset, and leaves an indexer
+something to explain. So the write path returns `InvalidAsset` for:
+
+1. **the registry's own address** — `attest` on the registry would key
+   `Safety(registry)` inside the registry and emit an event reading as the
+   registry attesting itself;
+2. **the admin's address** — the admin is the writer, never the subject. It is
+   normally an account, which rule 3 already covers, but `init` accepts any
+   `Address` and the direct comparison stays correct when the admin is a
+   contract (a multisig, say);
+3. **anything that is not a contract address** — an account (`G…`), a muxed
+   account (`M…`), a claimable balance or a liquidity pool id. A SAC is a
+   contract, so reading the address's type tag rules out the fat-finger case
+   the check exists for: pasting an issuer account where a SAC address belongs.
+
+Each rule costs a comparison or a tag read, with no host invocation. The
+single path and the batch path get all three from the same shared validation
+function, so `attest_many` cannot accept what `attest` refuses;
+`batch_with_an_invalid_asset_address_writes_nothing` pins that a bad address
+in the middle of a batch writes nothing at all.
+
+**What is deliberately not checked is the caller's to own: whether the
+contract at that address really is the SAC for the scanned CODE-ISSUER.**
+Answering it on-chain would mean invoking the candidate contract and trusting
+what it says about itself — neither cheap nor self-authenticating, since an
+impostor answers for itself. The same conclusion is reached off-chain, by
+resolving CODE-ISSUER to its SAC with `stellar contract id asset`, which is
+what `make attest` does before anything is signed. An impostor *contract*
+address therefore passes the on-chain rule, and the attester owns having
+resolved the right one; the stored claim is still what the scanner concluded,
+bound by `evidence_hash`.
+
+This was decided rather than assumed: the checks above are the ones that are
+cheap on-chain, everything else is documented as caller responsibility, and
+the type rule is testable — see `attest_rejects_a_non_contract_address`,
+`attest_rejects_the_registrys_own_address` and `attest_rejects_the_admin_address`.
 
 ### `Option`, so unknown is not safe
 
@@ -570,7 +664,7 @@ tag names exactly one layout**: the tag alone says which lines follow and in
 what order.
 
 ```
-assay-evidence-v1
+assay-evidence-v2
 asset	CODE-ISSUER
 severity	N
 base_severity	N
@@ -606,6 +700,27 @@ scanner	VERSION         (v4: immediately after the version line)
 ; September 2015` for testnet. The passphrase is the one network identifier the
 ecosystem already agrees on, and the value is fixed by the protocol. It is not
 configuration.
+
+#### Report fields outside the preimage
+
+Some report fields are rendered in the JSON and CLI output but are deliberately
+not part of the hashed evidence preimage: `state`, `stale`, `undetermined`,
+`undetermined_checks`, `undetermined_rate`, `scanned_at`, and
+`accountability_reason`. They describe the report's completeness and the
+classification of its verdict, not the evidence the verdict commits to, so they
+move nothing in `evidence_hash`.
+
+`accountability_reason` was added in #367 to split the two facts that
+`accountability: unverified` had collapsed — `fetch_failed` (the stellar.toml
+could not be read) from `not_claimed` (it was fetched and does not name this
+asset), plus `mismatch` (the advertised home_domain disagrees with the curated
+directory) and `no_home_domain` (there was no claim to verify, so
+`accountability` is `unknown`). Because it is not evidence, the preimage
+encoding is unchanged: `accountability` still renders one of `unknown`,
+`unverified`, `verified`, and there is no `assay-evidence-v5`. The distinction
+already survives in the attributed evidence claim text (for example
+`not retrievable: status 404` versus `CURRENCIES lists ... none matching`);
+`accountability_reason` merely makes it machine-readable from JSON alone.
 
 A report whose bindings are not one of the four rows above (a network without
 a check set, or a scanner without both) has no tag. `attest.FromReport` refuses
@@ -752,7 +867,19 @@ cost is that the hash cannot distinguish a fresh confirmation from a stale one
   reimplementer must refuse it the same way.
 
 The version line is inside the hash, so a future encoding change cannot produce
-bytes a verifier would silently compare against v1.
+bytes a verifier would silently compare against v2. Historical v1 attestations
+must continue to use the v1 rules and cannot be silently interpreted as v2.
+
+### Canonicalization of fetch failures
+
+Transport failures from `stellar.toml` are canonicalized before hashing. The
+allowed values are a closed set: `dns-failure`, `connection-refused`,
+`tls-failure`, `timeout`, `status N`, and `unknown-failure`. The URL field for a
+failed fetch is the fixed value `stellar.toml`. Hostnames, resolver addresses,
+IP addresses, ports, retry counts, timing values, and raw library error text are
+environmental transport variables, so including them would make identical
+evidence hash differently across machines. The raw error is still retained in
+the human diagnostics and reasoning response.
 
 #### The preimage binds the check set
 

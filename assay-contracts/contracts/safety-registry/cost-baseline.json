@@ -1,0 +1,35 @@
+{
+  "entrypoints": {
+    "attest": {
+      "disk_read_bytes": 0,
+      "instructions": 64024,
+      "mem_bytes": 9753,
+      "write_bytes": 384
+    },
+    "attest_many_50": {
+      "disk_read_bytes": 0,
+      "instructions": 3669695,
+      "mem_bytes": 583226,
+      "write_bytes": 15672
+    },
+    "get_safety": {
+      "disk_read_bytes": 0,
+      "instructions": 28228,
+      "mem_bytes": 3796,
+      "write_bytes": 0
+    },
+    "is_safe": {
+      "disk_read_bytes": 0,
+      "instructions": 22869,
+      "mem_bytes": 3284,
+      "write_bytes": 0
+    },
+    "is_safe_masked": {
+      "disk_read_bytes": 0,
+      "instructions": 23315,
+      "mem_bytes": 3284,
+      "write_bytes": 0
+    }
+  },
+  "tolerance_percent": 10
+}
