@@ -19,7 +19,7 @@ func TestRecordDetectsDateHeaderSkewFromFakeServer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fake upstream request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	observedAt := serverTime.Add(6 * time.Minute)
 	recorder := NewRecorder()
