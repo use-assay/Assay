@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/use-assay/assay/internal/assetlist"
+	"github.com/use-assay/assay/internal/clockskew"
 	"github.com/use-assay/assay/internal/horizon"
 	"github.com/use-assay/assay/internal/sep1"
 	"github.com/use-assay/assay/internal/stellarexpert"
@@ -511,10 +512,11 @@ type Report struct {
 	// carry the fact that it was produced under identity binding.
 	ScannerBound bool `json:"scanner_bound,omitempty"`
 
-	Mechanics     Mechanic   `json:"-"`
-	MechanicNames []string   `json:"mechanics"`
-	Findings      []Finding  `json:"findings"`
-	Evidence      []Evidence `json:"evidence"`
+	Mechanics     Mechanic                `json:"-"`
+	MechanicNames []string                `json:"mechanics"`
+	Findings      []Finding               `json:"findings"`
+	Evidence      []Evidence              `json:"evidence"`
+	ClockSkews    []clockskew.Observation `json:"clock_skews,omitempty"`
 
 	// ObservationWindowStart is the start of the observation window for this report.
 	ObservationWindowStart time.Time `json:"observation_window_start,omitempty"`

@@ -308,7 +308,10 @@ that produced this page confirmed:
 
 - [severity-model.md](severity-model.md) — "a `clear` asset is not safe",
   "what unevaluated means", "what stale means": all consistent with the
-  severity and verdict-state entries above.
+  severity and verdict-state entries above. In particular, its `unevaluated`
+  (`#32`) and `stale` (`#57`) sections are both covered by the definitions
+  above; `unevaluated` describes unread flags, while `stale` describes a
+  previously complete verdict that has aged beyond its policy window.
 - [checks.md](checks.md) — "'we could not check' and 'this is fine' must never
   render the same", and the 404-versus-5xx rule: consistent with
   [could not check](#could-not-check) and [not listed](#not-listed).
@@ -324,6 +327,9 @@ that produced this page confirmed:
   can get wrong" described gaps since closed (`clear` doubling as not
   evaluated, and the two Horizon flag copies never being compared). Both were
   corrected to match this glossary and the current code.
+- [timestamps.md](timestamps.md) — the source of each timestamp and the
+  upstream clock-skew diagnostic are consistent with the glossary's
+  distinction between observation time and an upstream's claimed time.
 
 ## Related
 

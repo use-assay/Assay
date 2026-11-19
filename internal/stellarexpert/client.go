@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/use-assay/assay/internal/cache"
+	"github.com/use-assay/assay/internal/clockskew"
 )
 
 // DefaultURL is the public StellarExpert API root.
@@ -460,6 +461,8 @@ func (c *Client) get(ctx context.Context, target string, out any) (bool, error) 
 			}
 			continue
 		}
+		clockskew.Record(req.Context(), "stellar.expert", resp.Request.URL.String(),
+			resp.Header.Get("Date"), time.Now().UTC())
 
 		defer func() { _ = resp.Body.Close() }()
 

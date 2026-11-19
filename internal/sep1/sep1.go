@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/use-assay/assay/internal/clockskew"
 )
 
 // version is kept here so every outbound client reports the same tool
@@ -616,6 +617,8 @@ func (f *Fetcher) fetch(ctx context.Context, target string) (*Doc, error) {
 		return nil, fmt.Errorf("sep1: %s: fetch %s: %w", CanonicalFailure(err), target, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	clockskew.Record(req.Context(), "stellar.toml", resp.Request.URL.String(),
+		resp.Header.Get("Date"), time.Now().UTC())
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("sep1: fetch %s: status %d", target, resp.StatusCode)

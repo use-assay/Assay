@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/use-assay/assay/internal/assetlist"
+	"github.com/use-assay/assay/internal/clockskew"
 	"github.com/use-assay/assay/internal/horizon"
 	"github.com/use-assay/assay/internal/mechanics"
 	"github.com/use-assay/assay/internal/sep1"
@@ -636,11 +637,16 @@ func (s *Scanner) Scan(ctx context.Context, a mechanics.Asset) (*mechanics.Repor
 // asset twice and cannot compare the independent reading against a different
 // snapshot than the one the report describes.
 func (s *Scanner) ScanWithSubject(ctx context.Context, a mechanics.Asset) (*mechanics.Report, *mechanics.Subject, error) {
+	recorder := clockskew.NewRecorder()
+	ctx = clockskew.WithRecorder(ctx, recorder)
 	sub, err := s.Subject(ctx, a)
 	if err != nil {
 		return nil, nil, err
 	}
 	rep, err := bindScanner(s.Engine.Run(ctx, sub))
+	if rep != nil {
+		rep.ClockSkews = recorder.Observations()
+	}
 	return rep, sub, err
 }
 
@@ -696,6 +702,8 @@ func (s *Scanner) SubjectWithHolder(ctx context.Context, a mechanics.Asset, hold
 // trustline analysis when holder is non-empty. When holder is empty the result
 // is byte-identical to Scan.
 func (s *Scanner) ScanWithHolder(ctx context.Context, a mechanics.Asset, holder string) (*mechanics.Report, error) {
+	recorder := clockskew.NewRecorder()
+	ctx = clockskew.WithRecorder(ctx, recorder)
 	sub, err := s.SubjectWithHolder(ctx, a, holder)
 	if err != nil {
 		return nil, err
@@ -705,5 +713,9 @@ func (s *Scanner) ScanWithHolder(ctx context.Context, a mechanics.Asset, holder 
 		eng = &mechanics.Engine{Checks: append([]mechanics.Check{}, s.Engine.Checks...)}
 		eng.Checks = append(eng.Checks, mechanics.TrustlineCheck{})
 	}
-	return bindScanner(eng.Run(ctx, sub))
+	rep, err := bindScanner(eng.Run(ctx, sub))
+	if rep != nil {
+		rep.ClockSkews = recorder.Observations()
+	}
+	return rep, err
 }

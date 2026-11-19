@@ -61,6 +61,11 @@
   .card { border: 1px solid var(--line); border-radius: 8px; padding: 1rem; background: var(--panel); }
   .card h2 { font-size: .72rem; text-transform: uppercase; letter-spacing: .09em;
              color: var(--muted); margin: 0 0 .5rem; font-weight: 700; }
+  .network-card { margin-top: 1.5rem; overflow-wrap: anywhere; }
+  .network-value { font-family: ui-monospace, monospace; font-weight: 600; }
+  .skew-warning { border: 1px solid var(--medium); border-left: 4px solid var(--medium);
+                  border-radius: 6px; padding: .8rem 1rem; margin-top: 1.5rem;
+                  background: var(--panel); }
   .level { font-size: 1.65rem; font-weight: 700; letter-spacing: -.02em; }
   .sev-clear { color: var(--clear); } .sev-low { color: var(--low); }
   .sev-medium { color: var(--medium); } .sev-high { color: var(--high); }
@@ -300,12 +305,42 @@ async function render(rep, undeterminedHeader, asset) {
   const degraded = isUndetermined(rep, undeterminedHeader);
   if (degraded) frag.append(degradedPanel(rep));
 
+  if (rep.network) frag.append(networkPanel(rep.network));
+  if (Array.isArray(rep.clock_skews) && rep.clock_skews.length) {
+    frag.append(clockSkewPanel(rep.clock_skews));
+  }
+
   frag.append(axes(rep, degraded));
   frag.append(el('h2', null, 'Per-mechanic reasoning'));
   frag.append(findings(rep));
   frag.append(await historySection(asset));
 
   out.replaceChildren(frag);
+}
+
+function networkPanel(network) {
+  const card = el('section', 'card network-card');
+  card.append(el('h2', null, 'Network read'));
+  card.append(el('div', 'network-value', network));
+  return card;
+}
+
+function clockSkewPanel(skews) {
+  const panel = el('section', 'skew-warning');
+  panel.append(el('strong', null, 'Upstream clock skew detected.'));
+  panel.append(note('An upstream Date header differs from the scanner clock by more than five minutes. ' +
+    'Observation timestamps were not changed.'));
+  const list = el('ul');
+  for (const skew of skews) {
+    const item = el('li');
+    item.append(el('strong', null, String(skew.source || 'upstream')));
+    item.append(document.createTextNode(' — upstream time ' + fmtTime(skew.server_time) +
+      ', scanner time ' + fmtTime(skew.observed_at) +
+      ' (' + String(skew.skew_seconds) + ' seconds)'));
+    list.append(item);
+  }
+  panel.append(list);
+  return panel;
 }
 
 // degradedPanel renders the undetermined state as its own answer: it names the

@@ -15,7 +15,9 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
+	"time"
 
 	"github.com/use-assay/assay/internal/eval"
 	"github.com/use-assay/assay/internal/mechanics"
@@ -47,6 +49,13 @@ func run(args []string) error {
 	if err != nil {
 		return fmt.Errorf("eval: %w", err)
 	}
+	captureDates, err := eval.CaptureDates(*fixtures)
+	if err != nil {
+		return fmt.Errorf("eval: %w", err)
+	}
+	if err := printFixtureAges(os.Stdout, rec, captureDates, time.Now().UTC()); err != nil {
+		return err
+	}
 
 	if *out != "" {
 		if err := writeRecord(*out, rec); err != nil {
@@ -75,6 +84,36 @@ func run(args []string) error {
 		matrix.Print(*precisionRecall)
 	}
 
+	return nil
+}
+
+const staleFixtureAgeDays = 90
+
+func printFixtureAges(w io.Writer, rec *eval.Record, captureDates map[string]time.Time, now time.Time) error {
+	today := time.Date(now.UTC().Year(), now.UTC().Month(), now.UTC().Day(), 0, 0, 0, 0, time.UTC)
+	for _, subject := range rec.Subjects {
+		captured, ok := captureDates[subject.Dir]
+		if !ok {
+			return fmt.Errorf("eval: fixture manifest has no capture date for subject %s", subject.Dir)
+		}
+		ageDays := int(today.Sub(captured).Hours() / 24)
+		ageUnit := "days"
+		if ageDays == 1 || ageDays == -1 {
+			ageUnit = "day"
+		}
+		if _, err := fmt.Fprintf(w, "fixture age: %s captured %s (%d %s old)",
+			subject.Dir, captured.Format("2006-01-02"), ageDays, ageUnit); err != nil {
+			return fmt.Errorf("eval: write fixture age: %w", err)
+		}
+		if ageDays > staleFixtureAgeDays {
+			if _, err := fmt.Fprintf(w, " - STALE: older than %d days", staleFixtureAgeDays); err != nil {
+				return fmt.Errorf("eval: write fixture age: %w", err)
+			}
+		}
+		if _, err := fmt.Fprintln(w); err != nil {
+			return fmt.Errorf("eval: write fixture age: %w", err)
+		}
+	}
 	return nil
 }
 

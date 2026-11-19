@@ -240,6 +240,29 @@ components:
           description: >-
             True when the failure is a host-policy refusal: the scanner
             declined to make the request at all.
+    ClockSkew:
+      type: object
+      description: >-
+        Upstream Date header diagnostic. It does not change observation
+        timestamps and is excluded from evidence_hash.
+      required: [source, url, server_time, observed_at, skew_seconds, threshold_seconds]
+      properties:
+        source:
+          type: string
+        url:
+          type: string
+        server_time:
+          type: string
+          format: date-time
+        observed_at:
+          type: string
+          format: date-time
+        skew_seconds:
+          type: integer
+          description: Signed difference between local observation time and upstream time.
+        threshold_seconds:
+          type: integer
+          description: Absolute skew limit that was exceeded.
     Finding:
       type: object
       description: One check's verdict over the asset.
@@ -361,6 +384,11 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Evidence'
+        clock_skews:
+          type: array
+          description: Present only when an upstream Date header exceeds the local clock-skew threshold.
+          items:
+            $ref: '#/components/schemas/ClockSkew'
         observation_window_start:
           type: string
           format: date-time

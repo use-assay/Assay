@@ -16,6 +16,11 @@ third-party API had a bad day. Their labels come from each subject's
 one place by [`internal/eval`](../internal/eval), so the aggregate and
 per-check expectations cannot describe different runs.
 
+The offline `cmd/eval` command also prints each subject's manifest capture date
+and age in days. Captures older than 90 days are marked `STALE`, making the
+re-capture warning visible alongside the evaluation output; this is a reminder
+to review the source state, not a change to the fixture's recorded verdict.
+
 ## The labelled set
 
 Every subject is a real pubnet asset. Fixtures were captured from live sources

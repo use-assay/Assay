@@ -81,4 +81,24 @@ func TestUIIndexRendersUndeterminedAsFloor(t *testing.T) {
 			t.Errorf("ui/index.html still carries the old undetermined wording %q; it must name the check and call the severity a floor", gone)
 		}
 	}
+
+}
+
+func TestUIIndexRendersNetworkAndClockSkew(t *testing.T) {
+	src, err := os.ReadFile("ui/index.html")
+	if err != nil {
+		t.Fatalf("read ui/index.html: %v", err)
+	}
+	html := string(src)
+	for _, needle := range []string{
+		"networkPanel(rep.network)",
+		"Network read",
+		"clockSkewPanel(rep.clock_skews)",
+		"Upstream clock skew detected.",
+		"Observation timestamps were not changed.",
+	} {
+		if !strings.Contains(html, needle) {
+			t.Errorf("ui/index.html does not render %q", needle)
+		}
+	}
 }

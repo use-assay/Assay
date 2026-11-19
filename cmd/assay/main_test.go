@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/use-assay/assay/internal/attest"
+	"github.com/use-assay/assay/internal/horizon"
 	"github.com/use-assay/assay/internal/mechanics"
 )
 
@@ -31,6 +32,7 @@ func testReport() *mechanics.Report {
 		Evidence:           []mechanics.Evidence{},
 		UndeterminedChecks: []string{},
 		ScannedAt:          mechanics.NewCanonicalTime(time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)),
+		Network:            horizon.PublicNet,
 	}
 }
 
@@ -69,6 +71,9 @@ func TestDispatch(t *testing.T) {
 		}
 		if got.Asset.Code != "USDC" {
 			t.Errorf("scan output asset = %v", got.Asset)
+		}
+		if got.Network != horizon.PublicNet {
+			t.Errorf("scan output network = %q, want %q", got.Network, horizon.PublicNet)
 		}
 	})
 

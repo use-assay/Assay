@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"strings"
@@ -10,6 +11,21 @@ import (
 	"github.com/use-assay/assay/internal/attest"
 	"github.com/use-assay/assay/internal/mechanics"
 )
+
+func TestVerifyTextNamesNetwork(t *testing.T) {
+	var out bytes.Buffer
+	res := &VerifyResult{
+		Asset:   "AQUA-" + verifyTestAssetIssuer,
+		Network: "Test SDF Network ; September 2015",
+		Outcome: outcomeAgree,
+	}
+	if err := writeVerifyResult(&out, res, false); err != nil {
+		t.Fatalf("writeVerifyResult: %v", err)
+	}
+	if !strings.Contains(out.String(), "network: Test SDF Network ; September 2015") {
+		t.Fatalf("human output omits network passphrase:\n%s", out.String())
+	}
+}
 
 // verifyTableTime is the fixed "now" every staleness judgment uses, so the
 // tests are deterministic instead of racing the clock.

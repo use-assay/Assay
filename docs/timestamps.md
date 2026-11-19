@@ -166,9 +166,24 @@ successful observation. Assay handles this absence explicitly:
    is refused by `attest.FromReport` (`ErrUndetermined`) and cannot be written
    on-chain.
 
+## 4. Upstream clock-skew diagnostics
+
+The scanner compares each received upstream HTTP `Date` header with its local
+wall clock. A difference greater than five minutes in either direction is
+recorded in the report's optional `clock_skews` diagnostics, including the
+source, URL, upstream time, local observation time, and signed difference in
+seconds. Headers that are absent or cannot be parsed do not provide a usable
+comparison and are ignored.
+
+This is a warning, not a correction or a new time source. `ScannedAt`,
+`RetrievedAt`, and every other observation timestamp continue to use their
+existing local-clock semantics; Assay never replaces or adjusts them using an
+upstream clock. The diagnostics are report metadata and are excluded from
+`evidence_hash`, so detecting a skew does not rewrite an attestation claim.
+
 ---
 
-## 4. Why Retrieval Timestamps are Excluded from `evidence_hash`
+## 5. Why Retrieval Timestamps are Excluded from `evidence_hash`
 
 `evidence_hash` commits to **what the sources claimed**, not **when they were asked**.
 
@@ -187,7 +202,7 @@ ledger, Assay achieves both properties:
 
 ---
 
-## 5. Evaluation & Decision: Storing Scan Time On-Chain (`observed_at`)
+## 6. Evaluation & Decision: Storing Scan Time On-Chain (`observed_at`)
 
 ### Context & Problem Statement
 

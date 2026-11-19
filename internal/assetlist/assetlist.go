@@ -32,6 +32,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/use-assay/assay/internal/clockskew"
 )
 
 // MaxBody caps a list response.
@@ -175,6 +177,8 @@ func (c *Client) Fetch(ctx context.Context, url string) (*List, error) {
 		return nil, fmt.Errorf("assetlist: get %s: %w", url, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	clockskew.Record(req.Context(), "stellar.asset-list", resp.Request.URL.String(),
+		resp.Header.Get("Date"), time.Now().UTC())
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("assetlist: get %s: status %d", url, resp.StatusCode)

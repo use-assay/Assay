@@ -84,6 +84,7 @@ type verifyScanFunc func(ctx context.Context, asset mechanics.Asset) (*mechanics
 // VerifyResult is the full verdict, for both the human line and -json.
 type VerifyResult struct {
 	Asset   string         `json:"asset"`
+	Network string         `json:"network,omitempty"`
 	Outcome verifyOutcome  `json:"outcome"`
 	Fields  []string       `json:"fields,omitempty"`   // which fields mismatched
 	AgeSecs int64          `json:"age_secs,omitempty"` // attestation age, for stale
@@ -126,6 +127,7 @@ func verifyAsset(ctx context.Context, asset mechanics.Asset, maxAge int64, now t
 	if err != nil {
 		return nil, fmt.Errorf("scan: %w", err)
 	}
+	res.Network = string(report.Network)
 
 	// The differential read is independent of the hash comparison: it compares
 	// the scanner's flag reading with a second ledger route, so an attestation
@@ -353,6 +355,9 @@ func writeVerifyResult(w io.Writer, res *VerifyResult, asJSON bool) error {
 	}
 
 	_, _ = fmt.Fprintf(w, "%s: %s\n", strings.ToUpper(string(res.Outcome)), res.Asset)
+	if res.Network != "" {
+		_, _ = fmt.Fprintf(w, "network: %s\n", res.Network)
+	}
 	if res.Detail != "" {
 		_, _ = fmt.Fprintln(w, res.Detail)
 	}

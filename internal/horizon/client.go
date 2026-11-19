@@ -14,6 +14,8 @@ import (
 	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/use-assay/assay/internal/clockskew"
 )
 
 // DefaultURL is the public Horizon instance for pubnet.
@@ -375,6 +377,8 @@ func (c *Client) get(ctx context.Context, path string, out any) error {
 		return fmt.Errorf("horizon: get %s: %w", path, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	clockskew.Record(req.Context(), "horizon", resp.Request.URL.String(),
+		resp.Header.Get("Date"), time.Now().UTC())
 
 	if resp.StatusCode == http.StatusNotFound {
 		return fmt.Errorf("%w: %s", ErrNotFound, path)

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/use-assay/assay/internal/clockskew"
 	"github.com/use-assay/assay/internal/mechanics"
 	"github.com/use-assay/assay/internal/temporal"
 )
@@ -35,6 +36,7 @@ func TestOpenAPISchemasMatchHandlerEmittedFields(t *testing.T) {
 		{"Report", reflect.TypeOf(mechanics.Report{})},
 		{"Asset", reflect.TypeOf(mechanics.Asset{})},
 		{"Evidence", reflect.TypeOf(mechanics.Evidence{})},
+		{"ClockSkew", reflect.TypeOf(clockskew.Observation{})},
 		{"Finding", reflect.TypeOf(mechanics.Finding{})},
 		// The history response and its observation/transition entries.
 		{"Observation", reflect.TypeOf(temporal.Observation{})},
