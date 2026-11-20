@@ -13,12 +13,14 @@ import "github.com/use-assay/assay/internal/mechanics"
 // and the evidence detectors cannot report it because accountability is not an
 // Evidence entry.
 //
-// Like the other detectors it reports a State. A comparison that could not be
-// made returns Unknown or Missing with no verdict, so a consumer cannot read an
-// empty movement as "unchanged" when one side was partial.
+// From and To are the two sides of the comparison in time order, matching the
+// pair carried by Transition. Like the other detectors it reports a State: a
+// comparison that could not be made returns Unknown or Missing with no verdict,
+// so a consumer cannot read an empty movement as "unchanged" when one side was
+// partial.
 type AccountabilityMovement struct {
-	Before mechanics.Accountability `json:"before"`
-	After  mechanics.Accountability `json:"after"`
+	From mechanics.Accountability `json:"from"`
+	To   mechanics.Accountability `json:"to"`
 	// Changed is meaningful only when State is Valid.
 	Changed bool  `json:"changed"`
 	State   State `json:"state"`
@@ -27,15 +29,21 @@ type AccountabilityMovement struct {
 }
 
 // AccountabilityTransition derives the accountability movement between two
-// observations. It is built on Between, so it inherits the same ordering and
-// the same refusal to compare a partial observation.
+// observations. It is the same value Between puts in Transition.Accountability,
+// exposed as a standalone detector for callers that only need this axis.
 func AccountabilityTransition(from, to Observation) AccountabilityMovement {
-	t := Between(from, to)
+	return Between(from, to).Accountability
+}
+
+// accountabilityMovement projects a transition's ordered pair onto the
+// accountability axis. It reads the pair Between already validated rather than
+// calling Between again, which would recurse when Between fills this field.
+func accountabilityMovement(t Transition) AccountabilityMovement {
 	m := AccountabilityMovement{State: t.State, Reason: t.Reason}
 	if t.State != Valid {
 		return m
 	}
-	m.Before, m.After = t.From.Accountability, t.To.Accountability
-	m.Changed = m.Before != m.After
+	m.From, m.To = t.From.Accountability, t.To.Accountability
+	m.Changed = m.From != m.To
 	return m
 }

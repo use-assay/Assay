@@ -136,6 +136,9 @@ func TestSequencesProduceExpectedTransitions(t *testing.T) {
 		baseBefore, baseAfter         mechanics.Severity
 		severityBefore, severityAfter mechanics.Severity
 
+		accountabilityFrom, accountabilityTo mechanics.Accountability
+		accountabilityChanged                bool
+
 		// mechanicsMoved records whether anything in the full bitset moved, so
 		// a sequence in which nothing at all changed cannot be asserted as an
 		// evidence-only change, and vice versa.
@@ -212,6 +215,23 @@ func TestSequencesProduceExpectedTransitions(t *testing.T) {
 			mechanicsMoved: true,
 			reasonContains: "reputation",
 		},
+		{
+			dir:   "seq6-accountability-change",
+			why:   "the public claim was lost: no capability or severity moved, but who claims the asset did",
+			state: temporal.Valid,
+
+			added:       0,
+			attribution: temporal.AttributionNone,
+
+			baseBefore: mechanics.Clear, baseAfter: mechanics.Clear,
+			severityBefore: mechanics.Clear, severityAfter: mechanics.Clear,
+
+			mechanicsMoved: false,
+
+			accountabilityFrom:    mechanics.AccountabilityVerified,
+			accountabilityTo:      mechanics.AccountabilityUnverified,
+			accountabilityChanged: true,
+		},
 	}
 
 	asserted := map[string]bool{}
@@ -270,6 +290,26 @@ func TestSequencesProduceExpectedTransitions(t *testing.T) {
 			if sev.Attribution != tc.attribution {
 				t.Errorf("attribution = %q, want %q", sev.Attribution, tc.attribution)
 			}
+			// The detector runs over the same committed fixtures as every
+			// other axis, including the partially observed sequence.
+			acct := temporal.AccountabilityTransition(tr.From, tr.To)
+			if acct.State != tc.state {
+				t.Errorf("accountability state = %q, want %q: %s", acct.State, tc.state, acct.Reason)
+			}
+			if tr.Accountability != acct {
+				t.Errorf("transition accountability = %+v, want %+v", tr.Accountability, acct)
+			}
+			if tc.state != temporal.Valid {
+				if acct.Changed || acct.From != "" || acct.To != "" || acct.Reason == "" {
+					t.Errorf("a %q transition reported an accountability movement: %+v", tc.state, acct)
+				}
+			} else if acct.From != tc.accountabilityFrom || acct.To != tc.accountabilityTo ||
+				acct.Changed != tc.accountabilityChanged {
+				t.Errorf("accountability = %s -> %s (changed %t), want %s -> %s (changed %t)",
+					acct.From, acct.To, acct.Changed,
+					tc.accountabilityFrom, tc.accountabilityTo, tc.accountabilityChanged)
+			}
+
 			if tc.state != temporal.Valid {
 				// A comparison that could not be made must not report a
 				// movement: the fields stay empty rather than guessing.

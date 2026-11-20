@@ -1,6 +1,7 @@
 package history_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -117,6 +118,9 @@ func TestStoreFileRoundTrip(t *testing.T) {
 	mustAppend(t, first, obs("AQUA", aquaIssuer, at(2), mechanics.MechAuthRevocable))
 	mustAppend(t, first, obs("AQUA", aquaIssuer, at(1), 0))
 	mustAppend(t, first, obs("USDC", usdcIssuer, at(1), 0))
+	if err := first.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 
 	second, err := history.Open(path)
 	if err != nil {
@@ -132,6 +136,9 @@ func TestStoreFileRoundTrip(t *testing.T) {
 	if n := second.Len(mechanics.Asset{Code: "USDC", Issuer: usdcIssuer}); n != 1 {
 		t.Fatalf("reopened store has %d USDC observations, want 1", n)
 	}
+	if err := second.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 }
 
 // Retention must hold across a reopen: the log on disk is exactly the retained
@@ -145,6 +152,9 @@ func TestStoreFileRetentionPersists(t *testing.T) {
 	}
 	for day := 1; day <= 3; day++ {
 		mustAppend(t, s, obs("AQUA", aquaIssuer, at(day), 0))
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
 	}
 
 	reopened, err := history.OpenWithRetention(path, 2)
@@ -161,6 +171,80 @@ func TestStoreFileRetentionPersists(t *testing.T) {
 
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("log file was not written: %v", err)
+	}
+	if err := reopened.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+}
+
+// Two writers on one path must not silently drop each other's observations:
+// the second Open refuses with a clear, matchable error, and ownership returns
+// to a later caller once the first store is closed.
+func TestOpenRefusesSecondWriter(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.jsonl")
+
+	first, err := history.Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	second, err := history.Open(path)
+	if !errors.Is(err, history.ErrLocked) {
+		t.Fatalf("second Open error = %v, want ErrLocked", err)
+	}
+	if second != nil {
+		t.Fatal("second Open returned a store despite the lock")
+	}
+	if err := first.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	third, err := history.Open(path)
+	if err != nil {
+		t.Fatalf("Open after Close: %v", err)
+	}
+	if err := third.Append(obs("AQUA", aquaIssuer, at(1), 0)); err != nil {
+		t.Fatalf("Append after acquiring lock: %v", err)
+	}
+	if err := third.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := third.Append(obs("AQUA", aquaIssuer, at(2), 0)); !errors.Is(err, history.ErrClosed) {
+		t.Fatalf("Append after Close = %v, want ErrClosed", err)
+	}
+}
+
+// An in-memory store takes no OS lock, so two such stores can coexist.
+func TestInMemoryStoresDoNotLock(t *testing.T) {
+	first, second := history.New(), history.New()
+	mustAppend(t, first, obs("AQUA", aquaIssuer, at(1), 0))
+	mustAppend(t, second, obs("AQUA", aquaIssuer, at(2), 0))
+	if err := first.Close(); err != nil {
+		t.Fatalf("Close in-memory: %v", err)
+	}
+}
+
+// Accountability is part of an observation and must survive a log round trip
+// or the history API cannot derive an accountability movement from it.
+func TestStoreFilePersistsAccountability(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.jsonl")
+	s, err := history.Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	o := obs("AQUA", aquaIssuer, at(1), 0)
+	o.Accountability = mechanics.AccountabilityVerified
+	mustAppend(t, s, o)
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	reopened, err := history.Open(path)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer func() { _ = reopened.Close() }()
+	got := reopened.List(mechanics.Asset{Code: "AQUA", Issuer: aquaIssuer})
+	if len(got) != 1 || got[0].Accountability != mechanics.AccountabilityVerified {
+		t.Fatalf("accountability lost on reopen: %+v", got)
 	}
 }
 

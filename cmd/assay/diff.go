@@ -233,9 +233,9 @@ func printDiff(w io.Writer, r *diffResult) {
 	if r.Accountability.State != temporal.Valid {
 		_, _ = fmt.Fprintf(w, "  %s\n", nonValid(r.Accountability.State, r.Accountability.Reason))
 	} else if !r.Accountability.Changed {
-		_, _ = fmt.Fprintf(w, "  unchanged (%s)\n", r.Accountability.After)
+		_, _ = fmt.Fprintf(w, "  unchanged (%s)\n", r.Accountability.To)
 	} else {
-		_, _ = fmt.Fprintf(w, "  %s -> %s\n", r.Accountability.Before, r.Accountability.After)
+		_, _ = fmt.Fprintf(w, "  %s -> %s\n", r.Accountability.From, r.Accountability.To)
 	}
 
 	_, _ = fmt.Fprintln(w, "evidence:")

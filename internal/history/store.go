@@ -54,6 +54,15 @@ import (
 // more than this many observations exist for one asset, the oldest are dropped.
 const DefaultRetention = 256
 
+var (
+	// ErrLocked reports that another process already holds the history's
+	// single-writer lock. Callers can match it with errors.Is to turn startup
+	// into a clear refusal rather than a generic I/O failure.
+	ErrLocked = errors.New("history: already in use by another process")
+	// ErrClosed reports use of a store after Close released its writer lock.
+	ErrClosed = errors.New("history: store is closed")
+)
+
 // Store is an append-only, per-asset sequence of observations, ordered by time.
 //
 // The zero value is not usable; use New or Open. All methods are safe for
@@ -64,6 +73,8 @@ type Store struct {
 	byAsset   map[string][]temporal.Observation
 	path      string
 	retention int
+	lock      *os.File
+	closed    bool
 }
 
 // New returns an in-memory Store that retains DefaultRetention observations per
@@ -90,18 +101,38 @@ func NewWithRetention(n int) *Store {
 // exist yet is not an error — the log is created on the first append — because
 // "no history yet" and "the history file is broken" are different facts and the
 // first must not fail startup.
+//
+// A file-backed store takes an exclusive advisory lock on a sidecar ".lock"
+// file at open time and refuses a second writer with ErrLocked. Call Close to
+// release it; on platforms without flock the lock is a documented no-op.
 func Open(path string) (*Store, error) {
 	return OpenWithRetention(path, DefaultRetention)
 }
 
 // OpenWithRetention is Open with an explicit per-asset retention bound, for a
 // deployment that wants a different one than DefaultRetention.
-func OpenWithRetention(path string, n int) (*Store, error) {
+func OpenWithRetention(path string, n int) (_ *Store, err error) {
 	s := NewWithRetention(n)
 	s.path = path
 	if path == "" {
 		return s, nil
 	}
+
+	if dir := filepath.Dir(path); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, fmt.Errorf("history: create %s: %w", dir, err)
+		}
+	}
+	lock, err := acquireLock(path)
+	if err != nil {
+		return nil, err
+	}
+	s.lock = lock
+	defer func() {
+		if err != nil {
+			_ = releaseLock(lock)
+		}
+	}()
 
 	f, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -148,11 +179,35 @@ func (s *Store) Append(o temporal.Observation) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.closed {
+		return ErrClosed
+	}
 	s.insertLocked(o)
 	if s.path == "" {
 		return nil
 	}
 	return s.persistLocked()
+}
+
+// Close releases the single-writer lock held by a file-backed store and leaves
+// the store unusable for appends. A process that exits without calling Close
+// still releases the lock through the OS; Close exists so a test or a graceful
+// shutdown can hand ownership to another writer immediately. It is safe to call
+// more than once and on an in-memory store.
+func (s *Store) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return nil
+	}
+	s.closed = true
+	if s.lock == nil {
+		return nil
+	}
+	lock := s.lock
+	s.lock = nil
+	return releaseLock(lock)
 }
 
 // List returns the observations for one asset, oldest first.
@@ -212,15 +267,19 @@ func (s *Store) insertLocked(o temporal.Observation) {
 // compaction: the file is exactly the retained set at all times, which means a
 // restart cannot resurrect observations that retention had already evicted. The
 // write is atomic — a temporary file renamed over the target — so a crash
-// mid-write cannot leave a half-observation in the log.
+// mid-write cannot leave a half-observation in the log. The directory entry
+// created by the rename is synced as well, because on some filesystems the
+// rename itself may not survive a power loss otherwise; docs/history.md records
+// the guarantee and its platform fallback.
 func (s *Store) persistLocked() error {
-	if dir := filepath.Dir(s.path); dir != "" && dir != "." {
+	dir := filepath.Dir(s.path)
+	if dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("history: create %s: %w", dir, err)
 		}
 	}
 
-	tmp, err := os.CreateTemp(filepath.Dir(s.path), ".history-*.tmp")
+	tmp, err := os.CreateTemp(dir, ".history-*.tmp")
 	if err != nil {
 		return fmt.Errorf("history: create temp log: %w", err)
 	}
@@ -251,6 +310,9 @@ func (s *Store) persistLocked() error {
 	if err := os.Rename(tmpName, s.path); err != nil {
 		return fmt.Errorf("history: replace %s: %w", s.path, err)
 	}
+	if err := syncDir(dir); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -268,15 +330,19 @@ const logVersion = 1
 // built from. Keeping the two apart means a change to how severity is
 // displayed cannot silently change what the log contains, and it keeps the log
 // independent of mechanics.Severity having a symmetric JSON encoding.
+// Accountability is optional in old logs: a record written before the field
+// existed decodes with an empty value rather than failing to load, which keeps
+// existing histories readable without a version bump.
 type logRecord struct {
-	Version            int                `json:"v"`
-	Asset              mechanics.Asset    `json:"asset"`
-	At                 time.Time          `json:"at"`
-	Mechanics          mechanics.Mechanic `json:"mechanics"`
-	BaseSeverity       uint32             `json:"base_severity"`
-	Severity           uint32             `json:"severity"`
-	Undetermined       bool               `json:"undetermined"`
-	UndeterminedChecks []string           `json:"undetermined_checks,omitempty"`
+	Version            int                      `json:"v"`
+	Asset              mechanics.Asset          `json:"asset"`
+	At                 time.Time                `json:"at"`
+	Mechanics          mechanics.Mechanic       `json:"mechanics"`
+	BaseSeverity       uint32                   `json:"base_severity"`
+	Severity           uint32                   `json:"severity"`
+	Accountability     mechanics.Accountability `json:"accountability,omitempty"`
+	Undetermined       bool                     `json:"undetermined"`
+	UndeterminedChecks []string                 `json:"undetermined_checks,omitempty"`
 }
 
 func record(o temporal.Observation) logRecord {
@@ -287,6 +353,7 @@ func record(o temporal.Observation) logRecord {
 		Mechanics:          o.Mechanics,
 		BaseSeverity:       uint32(o.Base),
 		Severity:           uint32(o.Severity),
+		Accountability:     o.Accountability,
 		Undetermined:       o.Undetermined,
 		UndeterminedChecks: append([]string{}, o.UndeterminedChecks...),
 	}
@@ -299,6 +366,7 @@ func (r logRecord) observation() temporal.Observation {
 		Mechanics:          r.Mechanics,
 		Base:               mechanics.Severity(r.BaseSeverity),
 		Severity:           mechanics.Severity(r.Severity),
+		Accountability:     r.Accountability,
 		Undetermined:       r.Undetermined,
 		UndeterminedChecks: append([]string{}, r.UndeterminedChecks...),
 	}

@@ -1,0 +1,9 @@
+{
+  "asset": {"code": "AQUA", "issuer": "GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA"},
+  "at": "2026-10-08T00:00:00Z",
+  "mechanics": 0,
+  "base_severity": "clear",
+  "severity": "clear",
+  "accountability": "unverified",
+  "undetermined": false
+}

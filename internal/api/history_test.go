@@ -50,6 +50,12 @@ type historyBody struct {
 		Attribution    string   `json:"attribution"`
 		SeverityBefore string   `json:"severity_before"`
 		SeverityAfter  string   `json:"severity_after"`
+		Accountability struct {
+			From    string `json:"from"`
+			To      string `json:"to"`
+			Changed bool   `json:"changed"`
+			State   string `json:"state"`
+		} `json:"accountability"`
 	} `json:"transitions"`
 
 	LatestAt      *time.Time `json:"latest_at"`
@@ -188,8 +194,12 @@ func TestHistorySingleObservation(t *testing.T) {
 // the axis that moved.
 func TestHistoryMultipleWithTransition(t *testing.T) {
 	srv := newHistoryServer()
-	mustAppend(t, srv, historyObs(1, 0, mechanics.Clear, mechanics.Clear))
-	mustAppend(t, srv, historyObs(2, mechanics.MechClawbackEnabled, mechanics.High, mechanics.High))
+	first := historyObs(1, 0, mechanics.Clear, mechanics.Clear)
+	first.Accountability = mechanics.AccountabilityVerified
+	second := historyObs(2, mechanics.MechClawbackEnabled, mechanics.High, mechanics.High)
+	second.Accountability = mechanics.AccountabilityUnverified
+	mustAppend(t, srv, first)
+	mustAppend(t, srv, second)
 
 	rec, body := getHistory(t, srv)
 	if rec.Code != http.StatusOK {
@@ -223,6 +233,10 @@ func TestHistoryMultipleWithTransition(t *testing.T) {
 	}
 	if tr.SeverityBefore != "clear" || tr.SeverityAfter != "high" {
 		t.Errorf("severity moved %q -> %q, want clear -> high", tr.SeverityBefore, tr.SeverityAfter)
+	}
+	if tr.Accountability.State != "valid" || tr.Accountability.From != "verified" ||
+		tr.Accountability.To != "unverified" || !tr.Accountability.Changed {
+		t.Errorf("accountability = %+v, want valid verified -> unverified", tr.Accountability)
 	}
 }
 
@@ -263,6 +277,11 @@ func TestHistoryUndeterminedObservation(t *testing.T) {
 	if body.Transitions[0].State != "unknown" {
 		t.Errorf("transition state = %q, want %q; a partial observation cannot yield a derived change",
 			body.Transitions[0].State, "unknown")
+	}
+	if body.Transitions[0].Accountability.State != "unknown" ||
+		body.Transitions[0].Accountability.Changed {
+		t.Errorf("accountability = %+v, want unknown with no change on a partial pair",
+			body.Transitions[0].Accountability)
 	}
 }
 

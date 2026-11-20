@@ -516,6 +516,7 @@ components:
         - severity_before
         - severity_after
         - attribution
+        - accountability
       properties:
         asset:
           $ref: '#/components/schemas/Asset'
@@ -553,6 +554,29 @@ components:
         attribution:
           type: string
           enum: [none, capability, reputation, both]
+        accountability:
+          $ref: '#/components/schemas/AccountabilityMovement'
+    AccountabilityMovement:
+      type: object
+      description: >-
+        The change in who publicly claims the asset, independent of severity.
+        A state other than "valid" means no comparison could be made; from, to
+        and changed then carry no verdict.
+      required: [from, to, changed, state]
+      properties:
+        from:
+          type: string
+          enum: [unknown, unverified, verified, ""]
+        to:
+          type: string
+          enum: [unknown, unverified, verified, ""]
+        changed:
+          type: boolean
+        state:
+          type: string
+          enum: [valid, unknown, missing]
+        reason:
+          type: string
     History:
       type: object
       description: The body of GET /api/v1/history.

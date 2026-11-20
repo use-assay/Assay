@@ -558,12 +558,15 @@ func runServe(args []string, log *slog.Logger) error {
 	// records them in the observation history like any other evidence.
 	srv := api.NewServer(log)
 	srv.Scanner = newScanner(assetLists())
+	var historyStore *historystore.Store
 	if *historyPath != "" {
 		store, err := historystore.Open(*historyPath)
 		if err != nil {
 			return fmt.Errorf("serve: history: %w", err)
 		}
 		srv.History = store
+		historyStore = store
+		defer func() { _ = historyStore.Close() }()
 	}
 
 	httpSrv := &http.Server{

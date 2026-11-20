@@ -143,6 +143,35 @@ Attribution is derived from the pair, not guessed from the size of the move:
 This is what makes a reputation-only move impossible to attribute to capability:
 the capability test reads base severity, and base did not move.
 
+## Accountability movement
+
+A fourth thing can move that neither capability nor severity sees: **who, if
+anyone, publicly claims the asset**. A domain can stop reciprocating a
+`stellar.toml` claim — `verified` → `unverified` — or an issuer can begin
+advertising one — `unknown` → `verified` — with no flag moving at all. Because
+[accountability is reported, never discounted](severity-model.md#rule-3-accountability-is-reported-never-discounted),
+a severity diff cannot express this, and an evidence diff cannot either:
+accountability is a classified verdict on `Report`, not an `Evidence` entry.
+
+`AccountabilityTransition` (and the `accountability` field that `Between`
+writes into every `Transition`) reports:
+
+| Field | Meaning |
+| --- | --- |
+| `from` / `to` | the two accountability values, ordered by observation time like the pair itself |
+| `changed` | whether they differ; meaningful only when `state` is `valid` |
+| `state` / `reason` | the same `valid` / `unknown` / `missing` answer as the pair, with a plain-language reason when it is not valid |
+
+An empty difference is still not a no-answer: on `unknown` or `missing`, `from`
+and `to` stay empty and `changed` is false, because a source that did not answer
+could have hidden exactly the claim change being asked about. This is the same
+propagation every other detector inherits from `Between` — see
+[Handling undetermined observations](#handling-undetermined-observations). The
+detector is exercised over every committed fixture sequence in
+`internal/temporal/testdata`, including the undetermined one and a synthetic
+`verified` → `unverified` pair, and the movement is surfaced on every entry of
+`GET /api/v1/history`'s `transitions` array ([history.md](history.md)).
+
 ## Evidence-only changes
 
 A third thing can move between two observations: the evidence itself, while the
@@ -290,8 +319,9 @@ publishes these comparisons live in [history.md](history.md), not here.
   are tested where they live:
   `go test ./internal/temporal/ -run Addition -v`,
   `go test ./internal/temporal/ -run Removal -v`,
-  `go test ./internal/temporal/ -run Severity -v`,
-  `go test ./internal/temporal/ -run Evidence -v`.
+   `go test ./internal/temporal/ -run Severity -v`,
+   `go test ./internal/temporal/ -run Accountability -v`,
+   `go test ./internal/temporal/ -run Evidence -v`.
 
 ## Verification
 

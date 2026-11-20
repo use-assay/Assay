@@ -33,8 +33,8 @@ func TestAccountabilityTransitionReportsChange(t *testing.T) {
 	if !m.Changed {
 		t.Fatal("Changed = false, want true")
 	}
-	if m.Before != mechanics.AccountabilityVerified || m.After != mechanics.AccountabilityUnverified {
-		t.Fatalf("movement = %s -> %s, want verified -> unverified", m.Before, m.After)
+	if m.From != mechanics.AccountabilityVerified || m.To != mechanics.AccountabilityUnverified {
+		t.Fatalf("movement = %s -> %s, want verified -> unverified", m.From, m.To)
 	}
 }
 
@@ -61,5 +61,32 @@ func TestAccountabilityTransitionIsUnknownWhenEitherSideIsPartial(t *testing.T) 
 	}
 	if m.Reason == "" {
 		t.Fatal("Reason is empty; unknown must say what was partial")
+	}
+}
+
+// The transition carries the same movement as the standalone detector, so a
+// consumer of /api/v1/history and a caller of the detector cannot disagree.
+func TestTransitionCarriesAccountability(t *testing.T) {
+	from := observation(t, "2026-09-01T00:00:00Z", mechanics.AccountabilityUnknown, false)
+	to := observation(t, "2026-09-08T00:00:00Z", mechanics.AccountabilityVerified, false)
+
+	tr := temporal.Between(from, to)
+	if tr.Accountability != temporal.AccountabilityTransition(from, to) {
+		t.Fatalf("transition accountability = %+v, want %+v",
+			tr.Accountability, temporal.AccountabilityTransition(from, to))
+	}
+	if tr.Accountability.From != mechanics.AccountabilityUnknown ||
+		tr.Accountability.To != mechanics.AccountabilityVerified || !tr.Accountability.Changed {
+		t.Fatalf("from/to values wrong: %+v", tr.Accountability)
+	}
+}
+
+func TestAccountabilityTransitionIsMissingWithoutAPair(t *testing.T) {
+	m := temporal.AccountabilityTransition(
+		observation(t, "2026-09-01T00:00:00Z", mechanics.AccountabilityVerified, false),
+		temporal.Observation{},
+	)
+	if m.State != temporal.Missing || m.Changed || m.Reason == "" {
+		t.Fatalf("movement = %+v, want missing with no change and a reason", m)
 	}
 }

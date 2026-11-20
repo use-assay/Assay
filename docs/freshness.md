@@ -129,12 +129,60 @@ escalates on evidence rather than waiting for mechanics to catch up.
 
 ### Exposure context
 
-For scale: a census of the 5,000 most recently created assets on pubnet
-(`/assets`, 2026-09-24) found **373 (7.5%)** carrying at least one
-authorization flag — 370 `auth_revocable`, 304 `auth_clawback_enabled`. A flag
-flip is not a rare event type in the abstract; it is rare *so far* among the
-specific issuers that have been attested, and most of the network's flagged
-assets have never been attested at all.
+For scale: a census of the first 5,000 assets returned by `/assets` in
+paging-token order (`order=desc`, 2026-09-24) found **373 (7.5%)** carrying at
+least one authorization flag — 370 `auth_revocable`, 304
+`auth_clawback_enabled`. A flag flip is not a rare event type in the abstract;
+it is rare *so far* among the specific issuers that have been attested, and most
+of the network's flagged assets have never been attested at all.
+
+### Network-wide capability-addition census
+
+The attested set is too small to price the risk of an asset chosen at random, so
+the same question was answered against a bounded network sample on 2026-11-20.
+
+**Method.** Walk `/assets?limit=200&order=desc` for 250 pages (50,000 assets;
+Horizon returns them in paging-token order, not creation order). Count assets
+with at least one holder balance, then collect the distinct issuers of flagged
+assets with holders. For each issuer, walk `/accounts/<ISSUER>/operations`
+backwards to the start of the window and filter client-side. The window was
+**2026-05-20T00:00:00Z → 2026-11-20T00:00:00Z** (six months). An event counts
+only when the record is a successful `set_options` whose `set_flags_s` contains
+`auth_revocable` or `auth_clawback_enabled`.
+
+Horizon's public instances silently ignore `type=` filters on both `/operations`
+and `/accounts/{id}/operations` — verified on 2026-11-20: a request for
+`type=set_options` returned `invoke_host_function` records with HTTP 200. Any
+pipeline measuring these additions must filter client-side; the counts below do.
+
+**Results.**
+
+| Measure | Value |
+| --- | --- |
+| Assets walked | 50,000 |
+| Assets with holders | 49,963 |
+| Flagged assets with holders | 4,007 (all `auth_revocable`, 3,527 `auth_clawback_enabled`) |
+| Distinct flagged issuers | 1,201 (790 with resolvable operation history) |
+| Operations scanned | 278,341 across 1,784 pages |
+| Flag-add operations in window | 2,985 across 89 issuers |
+| Assets whose issuer added a flag | **221 of 49,963 (0.44%)** |
+| Same rate, annualized | **0.88% of assets/year** |
+| Event rate per asset | 0.060 per six months (0.12/year) |
+
+The 411 unresolved issuers returned HTTP 404 from `/accounts/{id}/operations`,
+consistent with merged-away accounts; they contribute no observable events, so
+the rate is a lower bound. Repeated add operations from the same issuer are
+counted as events but collapse to one per affected asset; Horizon can emit
+`set_options` that re-asserts a flag already set, so 221 is an upper bound on
+confirmed *value transitions*. Read together: the true rate of assets acquiring
+a new power is at most 0.44% per six months and probably lower.
+
+Concrete example: issuer
+`GAANMD7UMX7J32YFUYFFFTUAVKONTVWSG64BRAFNVK6CQMFYJIGSIIKD` (assets `UPXRP`,
+1,304 holders; `UPXLM`, 1 holder) issued add operations for both
+`auth_revocable` and `auth_clawback_enabled` on 2026-05-25 and again on
+2026-05-26. A scan attested before that date would have under-reported both
+powers for existing trustlines.
 
 ## What the data supports
 
@@ -148,24 +196,33 @@ The measurement bounds the answer rather than pinpointing it:
 - **Adversarial class:** at least one flag mutation per quarter, demonstrated.
   No window longer than weeks bounds the damage an adversarial issuer can do
   between attestation and action.
+- **Network class:** at most 0.44% of assets with holders acquired a new
+  authorization power over the six-month census window (~0.88%/year). Rare in
+  the population is not the same as rare for a targeted asset: the adversarial
+  example sat inside that 0.44%, and no consumer gets to know which class it is
+  facing from the population rate alone.
 
 That gap — legitimate issuers changing flags slower than once a quarter,
-adversarial ones faster than once a quarter — is the actual input to a window:
-it says the binding constraint is the adversary, not the median issuer.
+adversarial ones faster than once a quarter, population additions under 1% per
+year — is the actual input to a window: it says the binding constraint is the
+adversary, not the median issuer. The census is a reason to keep windows short,
+not a reason to relax them.
 
 ## Recommended windows
 
 Every number in this section is a **provisional default**: chosen, reasoned,
 and reproducible from the data above, but not itself a measurement. The
-measurements are the 0/4/373 figures in the previous sections; the windows are
-policy layered on top of them.
+measurements are the 0/4/373/221 figures in the previous sections; the windows
+are policy layered on top of them. Revisiting them with the network census does
+not change a single value: the measured population rate is low, but it includes
+the adversarial class and cannot identify it in advance.
 
 | Use class | Window | Provisional default | Reasoning |
 | --- | --- | --- | --- |
 | **Custodial deposit gate** — you hold the balance on behalf of users | Hours, not days | 24 h (`86 400` s) | A balance survives contact with the issuer indefinitely, so what must be bounded is the exposure window to a flag flip. The adversarial class demonstrated month-scale churn; a day-long window bounds the worst case at ~1/30 of the observed adversarial mutation interval, while still being achievable given re-attestation is a manual process today. This is the example gate's value, and it now has a stated derivation. |
 | **One-shot settlement / pre-trade check** — you move your own balance once | Minutes; in practice, a fresh scan at execution time | ≤ 1 h (3 600 s) if a cached attestation must be used | The check and the action land in the same transaction, so the cheapest correct policy is to re-scan at execution time and consume an attestation only as a cross-check. A day-old snapshot is indefensible when a fresh one costs one scan. |
-| **Portfolio monitoring / dashboards** — informational, not gating | Days | 7 d | Staleness here wastes attention, not funds. The window should be shorter than the legitimate-issuer bound (~90 d) by a wide margin so that a flag change is caught in days, not months. |
-| **Explorer display / public badge** — context, never a decision | Weeks | 30 d | Must be framed "as of attested_at", never as a verdict. The safest presentation couples the badge to its timestamp explicitly. |
+| **Portfolio monitoring / dashboards** — informational, not gating | Days | 7 d | Staleness here wastes attention, not funds. The window should be shorter than the legitimate-issuer bound (~90 d) by a wide margin so that a flag change is caught in days, not months; the 0.88%/year population rate makes weekly review sufficient for a diversified watchlist. |
+| **Explorer display / public badge** — context, never a decision | Weeks | 30 d | Must be framed "as of attested_at", never as a verdict. The safest presentation couples the badge to its timestamp explicitly; even a 0.44%/six-month addition rate is not a verdict for the one asset being displayed. |
 
 Two rules cut across the table:
 
@@ -228,9 +285,17 @@ Everything measured here is reproducible without trust in this document:
 curl -s "https://horizon.stellar.org/accounts/<ISSUER>/effects?limit=200&order=desc" \
   | jq '[._embedded.records[] | select(.type=="account_flags_updated")]'
 
-# Exposure census, most recent assets first:
+# Exposure census, most recent assets first (paging-token order):
 curl -s "https://horizon.stellar.org/assets?limit=200&order=desc" \
   | jq '[._embedded.records[] | select(.flags.auth_required or .flags.auth_revocable or .flags.auth_clawback_enabled)] | length'
+
+# Capability additions. Never use ?type=set_options — it is ignored. Follow
+# _links.next.href until records[].created_at crosses the window start, and
+# filter client-side on each page:
+curl -s "https://horizon.stellar.org/accounts/<ISSUER>/operations?limit=200&order=desc" \
+  | jq '[._embedded.records[]
+         | select(.type == "set_options" and .transaction_successful)
+         | select((.set_flags_s // []) | any(. == "auth_revocable" or . == "auth_clawback_enabled"))]'
 ```
 
 If you re-run the measurement and get different counts, update this page —

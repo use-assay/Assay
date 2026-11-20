@@ -76,8 +76,10 @@ the observation.
 
 `transitions` entries are the same shape `internal/temporal` produces from two
 observations: `added`/`removed` capability bits with names, severity before and
-after, and an `attribution` (`capability`, `reputation`, `both`, or `none`). They
-are computed per request, never stored.
+after, an `attribution` (`capability`, `reputation`, `both`, or `none`), and an
+`accountability` movement with `from`/`to` values and its own `state`. They are
+computed per request, never stored; the accountability axis is specified in
+[transitions.md](transitions.md#accountability-movement).
 
 ## Semantics
 
@@ -151,12 +153,44 @@ The store lives in [`internal/history`](../internal/history):
   and atomic (a temporary file renamed over the target), so after each append
   the file is exactly the retained set and a crash cannot leave a half-written
   observation. The log is small and written at human rates; a full rewrite is
-  simpler and more obviously correct than an append log with periodic
-  compaction, and it means a restart cannot resurrect an evicted observation.
+   simpler and more obviously correct than an append log with periodic
+   compaction, and it means a restart cannot resurrect an evicted observation.
+   After the rename the **containing directory is synced**, so the rename itself
+   survives a power loss on filesystems where the directory entry is not durable
+   by the time the file's contents are. A sync error is reported as an append
+   failure, not ignored; the only errors ignored are `EINVAL`/`ENOTSUP`, which
+   mean the filesystem does not support directory sync at all. On platforms
+   that cannot open a directory for syncing, the step is a documented no-op
+   (see [Durability and writers](#durability-and-writers)).
 - **The on-disk record is versioned and separate from the wire shape.**
   Severity is stored as the number the model is built from, not the level name
   the API displays, and every record carries a `v` field. A future change to
-  either shape cannot be read as this one.
+   either shape cannot be read as this one. `accountability` is persisted so a
+   reopened log can still derive an accountability movement; older records
+   without the field load with it empty rather than failing to open.
+
+### Durability and writers
+
+Two properties of a file-backed store are worth stating explicitly because
+neither is visible from the JSON on disk:
+
+- **Rename durability.** The temporary file is written, closed, renamed over
+  the log, and then the containing directory is synced. File contents and the
+  directory entry are separate durable facts; syncing only the file would leave
+  a crash able to undo the rename and lose the whole append. An unsupported
+  directory sync is ignored only where the platform or filesystem cannot do it,
+  never when it fails for another reason.
+- **One writer per log.** `history.Open` takes an exclusive, non-blocking
+  advisory lock on a **sidecar `PATH.lock` file** and keeps it for the store's
+  lifetime. A second `assay serve -history PATH` refuses to start with
+  `ErrLocked` ("already in use by another process") instead of silently
+  overwriting the first process's observations. The lock is on a sidecar because
+  each append replaces the log by rename — locking the log inode would not
+  protect the next write. `Store.Close` releases the lock; process exit does too
+  through the OS. **Fallback:** on platforms without the `flock` syscall the
+  lock is a no-op and the single-writer guarantee does not exist — run only one
+  writer per history path there. Both behaviors are implemented in
+  `internal/history/platform_*.go` and tested in `internal/history/store_test.go`.
 
 ### What is retained, and for how long
 
