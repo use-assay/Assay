@@ -59,6 +59,7 @@ and the expected verdict.
 | `usdz-clawback-regulated/directory.json` | https://api.stellar.expert/explorer/directory/GAKTLPC4ZV37SSCITQ5IS5AQ4WPF4CF4VZJQPPAROSGXMYOATF5U6XPR (captured 2026-09-27) |
 | `synthetic-reputation-outage/*` | Not captured. Payload files are copies of `aqua-clear-verified` (2026-08-10); `blocked.err` is a constructed error marker (HTTP 429) added 2026-09-27 — see that directory's README. |
 | `synthetic-redirect-off-host/*` | Not captured. Payload files based on `aqua-clear-verified` (2026-08-10); `stellar.toml.err` records the cross-host redirect refusal error from redirect.example to other.example (added 2026-10-16, #380) — see that directory's README. |
+| `synthetic-auth-required-gated/*` | Not captured. Constructed 2026-11-20 for the severity glossary's `low` example (#411): `asset.json` and `account.json` carry `auth_required` on the canonical all-zero issuer key, and `stellar.toml.status` is `404` for `gated.example`. No live asset is described — see that directory's README. Not part of the labelled eval corpus. |
 
 `doge-reputation-outage` is the same real asset as `doge-noflags-scam`, captured
 for the case where a source failed. Its `directory.err` is a deliberate marker,

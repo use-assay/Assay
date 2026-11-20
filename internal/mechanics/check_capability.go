@@ -24,6 +24,19 @@ func (CapabilityCheck) Describe() string {
 		"the issuer is or whether they are likely to use the power."
 }
 
+// Inputs implements Check.
+func (CapabilityCheck) Inputs() []string {
+	return []string{
+		"Asset",
+		"Stat",
+		"StatFetchedAt",
+		"StatLedger",
+		"Issuer",
+		"IssuerFetchedAt",
+		"IssuerLedger",
+	}
+}
+
 // Run implements Check.
 //
 // Severity is the highest single capability present, not a sum. auth_revocable

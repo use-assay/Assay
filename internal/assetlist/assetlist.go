@@ -33,6 +33,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/use-assay/assay/internal/cache"
 	"github.com/use-assay/assay/internal/clockskew"
 )
 
@@ -142,21 +143,85 @@ func (l *List) Lookup(code, issuer, contract string) (Asset, bool) {
 	return Asset{}, false
 }
 
+// DefaultTTL bounds how long a fetched list may be served from cache, measured
+// from the fetch that produced it.
+//
+// Lists are large, change rarely, and are fetched on every scan that configures
+// them, which is the same argument that led to caching StellarExpert's curated
+// answers. Five minutes is chosen for that shape rather than for a published
+// freshness budget: no SEP-0042 list Assay consumes advertises a Cache-Control
+// lifetime, so there is no operator statement to defer to the way there is for
+// StellarExpert. It is short enough that a newly added asset appears while a
+// deployment is still working, and long enough that a server scanning a handful
+// of assets per minute does not re-download the same list for each one.
+//
+// List patching is evidence only and can neither raise nor lower severity, so
+// the cost of a stale copy is bounded by what the format itself promises: an
+// inclusion is not an endorsement. The age is never hidden — a cache hit keeps
+// the original fetch time on the list, and that time reaches the report. See
+// docs/caching.md. A deployment may set TTL: 0 (surfaced as
+// scan.Options.AssetListTTL) to disable it, and a one-shot `scan` run mostly
+// gains nothing from it.
+const DefaultTTL = 5 * time.Minute
+
+// Options configures a Client's cache policy.
+type Options struct {
+	// TTL bounds how long a fetched list may be served from cache, measured
+	// from the fetch that produced it. Zero or negative disables caching.
+	TTL time.Duration
+	// Now overrides the clock used for expiry. nil means time.Now. Tests set it
+	// to exercise expiry without sleeping.
+	Now func() time.Time
+}
+
+// DefaultOptions returns the production cache policy.
+func DefaultOptions() Options {
+	return Options{TTL: DefaultTTL}
+}
+
 // Client fetches published Stellar Asset Lists.
 type Client struct {
 	HTTP      *http.Client
 	UserAgent string
+
+	// now stamps a fetched list and measures cache expiry, so a test can pin
+	// both without sleeping.
+	now func() time.Time
+	// lists is the per-URL cache. A disarmed cache (TTL <= 0) makes every
+	// Fetch miss, so the uncached path is the same code path as the cached one.
+	lists *cache.Cache[*List]
 }
 
-// New returns a Client using the default HTTP settings and identity.
+// New returns a Client using the default HTTP settings, identity and cache
+// policy.
 func New() *Client {
+	return NewWithOptions(DefaultOptions())
+}
+
+// NewWithOptions returns a Client with the given cache policy.
+func NewWithOptions(opts Options) *Client {
+	now := opts.Now
+	if now == nil {
+		now = time.Now
+	}
 	return &Client{
 		HTTP:      &http.Client{Timeout: 20 * time.Second},
 		UserAgent: defaultUserAgent,
+		now:       now,
+		lists:     cache.New[*List](opts.TTL, cache.WithClock(now)),
 	}
 }
 
-// Fetch retrieves and decodes the list published at url.
+// Fetch retrieves and decodes the list published at url, or returns the copy
+// fetched within the configured TTL.
+//
+// A cache hit keeps the ORIGINAL fetch time: List.FetchedAt is when the list was
+// retrieved from upstream, never the time the cache served it, so the report
+// can state how old the list actually is. Expiry always means a re-fetch, never
+// an assumption that the previous answer still holds.
+//
+// A failure is never cached: an outage is returned uncached so recovery is
+// picked up on the next lookup instead of being masked by a stored error.
 //
 // A list URL is configuration, so this is strict about transport: only a 200
 // with a decodable body counts, and anything else returns an error naming the
@@ -165,6 +230,22 @@ func New() *Client {
 // must be present is the list's own name, which is what makes a document
 // identifiable as a SAL rather than arbitrary JSON.
 func (c *Client) Fetch(ctx context.Context, url string) (*List, error) {
+	if e, ok := c.lists.Get(url); ok {
+		// Hand back a copy rather than the cache's own pointer: a caller cannot
+		// then mutate the stored value for every later hit.
+		cached := *e.Value
+		return &cached, nil
+	}
+	list, err := c.fetch(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+	c.lists.Put(url, cache.Entry[*List]{Value: list, FetchedAt: list.FetchedAt})
+	return list, nil
+}
+
+// fetch retrieves and decodes one list, with no cache involvement.
+func (c *Client) fetch(ctx context.Context, url string) (*List, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("assetlist: build request for %s: %w", url, err)
@@ -195,6 +276,8 @@ func (c *Client) Fetch(ctx context.Context, url string) (*List, error) {
 		return nil, fmt.Errorf("assetlist: %s: not a Stellar Asset List (no name)", url)
 	}
 	l.URL = url
-	l.FetchedAt = time.Now().UTC()
+	// Stamped from the client's clock so a test can pin it, and so a cache entry
+	// measures its TTL from the fetch rather than from the insertion.
+	l.FetchedAt = c.now().UTC()
 	return &l, nil
 }
