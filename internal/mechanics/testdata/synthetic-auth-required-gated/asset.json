@@ -1,0 +1,28 @@
+{
+  "_links": {
+    "toml": {
+      "href": "https://gated.example/.well-known/stellar.toml"
+    }
+  },
+  "asset_type": "credit_alphanum12",
+  "asset_code": "GATED",
+  "asset_issuer": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+  "paging_token": "GATED_GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF_credit_alphanum12",
+  "num_accounts": 1,
+  "accounts": {
+    "authorized": 1,
+    "authorized_to_maintain_liabilities": 0,
+    "unauthorized": 0
+  },
+  "balances": {
+    "authorized": "1000.0000000",
+    "authorized_to_maintain_liabilities": "0.0000000",
+    "unauthorized": "0.0000000"
+  },
+  "flags": {
+    "auth_required": true,
+    "auth_revocable": false,
+    "auth_immutable": false,
+    "auth_clawback_enabled": false
+  }
+}

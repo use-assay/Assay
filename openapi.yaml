@@ -23,10 +23,14 @@ paths:
           required: false
           schema:
             type: string
-            pattern: '^G[A-Z2-7]{55}$'
+            pattern: '^[GM][A-Z2-7]{55}([A-Z2-7]{13})?$'
           example: GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H
           description: >-
-            Optional holder account ID (G..., 56 characters). Answers "am I
+            Optional holder account ID: a G... account (56 characters) or an
+            M... muxed account (69 characters). A muxed address is resolved to
+            its base G... account for the trustline lookup, and the evidence
+            records the original address, its multiplexing id, and the account
+            that was read. Answers "am I
             exposed?" for that account: the scan reads the holder's trustline
             and adds a "trustline" finding with the trustline's
             is_clawback_enabled and is_authorized flags, adding the

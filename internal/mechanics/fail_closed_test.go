@@ -26,6 +26,7 @@ type errCheck struct{}
 
 func (errCheck) ID() string       { return "failing-check" }
 func (errCheck) Describe() string { return "always fails" }
+func (errCheck) Inputs() []string { return nil }
 func (errCheck) Run(context.Context, *mechanics.Subject) (mechanics.Finding, error) {
 	return mechanics.Finding{}, errors.New("failing-check: source unreachable")
 }

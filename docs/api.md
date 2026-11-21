@@ -43,7 +43,7 @@ the message text.
 | --- | --- |
 | `missing_param` | A required query parameter was not supplied. |
 | `invalid_asset` | The `asset` parameter is not a valid `CODE-ISSUER` pair. |
-| `invalid_holder` | The `holder` or `account` parameter is not a valid `G…` address. |
+| `invalid_holder` | The `holder` or `account` parameter is neither a valid `G…` account nor a valid `M…` muxed account. |
 | `invalid_param` | Another parameter value is out of range or malformed. |
 | `asset_not_found` | The asset does not exist on the ledger. |
 | `account_not_found` | The account does not exist on the ledger. |
@@ -95,9 +95,9 @@ records one observation into the history store (see
 Parameters:
 
 - `asset` (required): asset code and issuer, e.g. `USDC-GA5Z...`.
-- `holder` (optional): a holder's `G...` address. Adds the holder-trustline
-  finding — whether the issuer can freeze or confiscate *this holder's*
-  balance — to the report.
+- `holder` (optional): a holder's `G...` account or `M...` muxed account.
+  Adds the holder-trustline finding — whether the issuer can freeze or
+  confiscate *this holder's* balance — to the report.
 
 The parameter accepts the same three spellings as the CLI — `CODE-ISSUER`,
 `CODE:ISSUER`, and a stellar.expert asset URL (percent-encoded) — and every
@@ -135,7 +135,8 @@ so a holder who opened theirs before the issuer enabled clawback is not
 exposed to it, even if the issuer's flag is set now. Issuer flags cannot tell
 those two holders apart; the holder's own trustline can.
 
-**Validation.** `holder` must be a Stellar account ID (`G…`, 56 characters).
+**Validation.** `holder` must be a Stellar account ID: a `G…` ed25519 account
+(56 characters), or an `M…` muxed account (69 characters) that decodes to one.
 Anything else is refused with `400 Bad Request` before any fetch:
 
 ```json
@@ -143,6 +144,16 @@ Anything else is refused with `400 Bad Request` before any fetch:
 ```
 
 An empty `holder=` is the same as leaving it out.
+
+**Muxed (`M…`) holders.** Exchanges hand depositors muxed addresses, and a
+muxed account is a naming convention rather than a ledger entry: it identifies a
+base `G…` account plus a 64-bit multiplexing id (SEP-23). Assay decodes the
+address, performs the trustline lookup against the base account, and records in
+the trustline evidence that the resolution happened — naming the original `M…`
+address, its id, and the `G…` account that was read. The severity is unaffected,
+because it was never holder-specific. A malformed `M…` (bad checksum, wrong
+length, contract address) is refused rather than resolved onto whatever account
+its bytes happen to spell.
 
 **What changes in the report.** The scan reads the holder's trustline from
 Horizon (`/accounts/{holder}`) and adds one finding, `check: "trustline"`
