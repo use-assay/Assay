@@ -35,6 +35,26 @@ paths:
             not hold the asset, or whose trustline cannot be read, makes the
             report undetermined. An invalid value is a 400 before any fetch; an
             empty value is the same as omitting it. See docs/api.md.
+        - name: max_age_secs
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+            maximum: 2147483648
+          example: 0
+          description: >-
+            Optional upper bound, in seconds, on how old a reused StellarExpert
+            reputation answer (the curated directory and the domain blocklist)
+            may be. A cached answer fetched this long ago or longer is not
+            reused: the source is asked again. `0` means "do not reuse" and
+            forces a fresh fetch of both. It can only tighten the server's own
+            cache lifetime, never extend it, and omitting it keeps the server
+            default. Ledger (Horizon) reads are never cached and are
+            unaffected. `max_age` is accepted as an alias; if both are sent,
+            `max_age_secs` wins. A value that is not a non-negative integer is
+            a 400 (`invalid_param`). See docs/api.md and docs/caching.md.
       responses:
         '200':
           description: Successful scan report. May indicate degraded state via header.
@@ -51,7 +71,7 @@ paths:
         '400':
           description: >-
             Invalid request parameters (including a holder that is not a G...
-            account ID), or an asset identifier naming the
+            account ID, or a max_age_secs that is not a non-negative integer), or an asset identifier naming the
             network's native asset (native/XLM), which has no issuer and no
             authorization flags and is therefore never scanned or attested.
           content:

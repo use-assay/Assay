@@ -98,6 +98,15 @@ Parameters:
 - `holder` (optional): a holder's `G...` address. Adds the holder-trustline
   finding — whether the issuer can freeze or confiscate *this holder's*
   balance — to the report.
+- `max_age_secs` (optional): the oldest a reused StellarExpert reputation
+  answer (the curated directory and the domain blocklist) may be, in seconds.
+  A cached answer that old or older is re-fetched instead of reused, so
+  `max_age_secs=0` means "do not reuse" and forces a fresh fetch of both. It
+  only tightens the server's cache lifetime and never extends it; omit it to
+  keep the server default. Ledger reads are never cached and are unaffected.
+  `max_age` is accepted as an alias, and `max_age_secs` wins if both are sent.
+  A value that is not a non-negative integer is a `400` with code
+  `invalid_param`. See [caching.md](caching.md).
 
 The parameter accepts the same three spellings as the CLI — `CODE-ISSUER`,
 `CODE:ISSUER`, and a stellar.expert asset URL (percent-encoded) — and every

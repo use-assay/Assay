@@ -15,6 +15,7 @@ import (
 	"github.com/use-assay/assay/internal/horizon"
 	"github.com/use-assay/assay/internal/mechanics"
 	"github.com/use-assay/assay/internal/scan"
+	"github.com/use-assay/assay/internal/stellarexpert"
 	"github.com/use-assay/assay/internal/temporal"
 )
 
@@ -150,6 +151,11 @@ const (
 	codeRateLimited     = "rate_limited"
 )
 
+// maxAgeSecsLimit is the largest max_age_secs accepted. It keeps the seconds to
+// time.Duration conversion from overflowing; any larger bound is, in effect,
+// "no bound" beyond the cache's own TTL, so nothing legitimate is lost.
+const maxAgeSecsLimit = 1 << 31
+
 type errorBody struct {
 	Error string `json:"error"`
 	Code  string `json:"code"`
@@ -184,16 +190,24 @@ func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
 	if maxAgeParam == "" {
 		maxAgeParam = r.URL.Query().Get("max_age")
 	}
+	var maxAge *time.Duration
 	if maxAgeParam != "" {
 		secs, err := strconv.ParseInt(maxAgeParam, 10, 64)
-		if err != nil || secs < 0 {
+		if err != nil || secs < 0 || secs > maxAgeSecsLimit {
 			writeJSON(w, http.StatusBadRequest, apiErr(codeInvalidParam, "invalid max_age_secs"))
 			return
 		}
+		d := time.Duration(secs) * time.Second
+		maxAge = &d
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
+	if maxAge != nil {
+		// The caller's upper bound on reused reputation answers. It reaches
+		// only the StellarExpert lookups; ledger reads are never cached.
+		ctx = stellarexpert.WithMaxAge(ctx, *maxAge)
+	}
 
 	report, err := s.Scanner.ScanWithHolder(ctx, asset, holder)
 
