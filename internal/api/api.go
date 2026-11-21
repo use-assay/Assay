@@ -63,6 +63,7 @@ func NewServer(log *slog.Logger) *Server {
 // cannot be registered without appearing here; the OpenAPI coverage test uses
 // the same list to hold openapi.yaml to the surface the server actually serves.
 var Routes = []string{
+	"GET /api/v1/meta",
 	"GET /api/v1/scan",
 	"GET /api/v1/history",
 	"GET /api/v1/exposure",
@@ -99,6 +100,7 @@ func (s *Server) Handler() http.Handler {
 	// failing probe must never report healthy; a dying process must still be
 	// able to answer /healthz.
 	handlers := map[string]http.HandlerFunc{
+		"GET /api/v1/meta":     s.handleMeta,
 		"GET /api/v1/scan":     s.handleScan,
 		"GET /api/v1/history":  s.handleHistory,
 		"GET /api/v1/exposure": s.withExposureLimit(limiter, s.handleExposure),
@@ -120,7 +122,23 @@ func (s *Server) Handler() http.Handler {
 		}
 		mux.HandleFunc(route, handler)
 	}
-	return s.withObservability(s.withCORS(mux))
+	return s.withObservability(s.withCacheControl(s.withCORS(mux)))
+}
+
+// Meta is the body of GET /api/v1/meta. It lets a client — the embedded UI in
+// particular — learn which report shape the server speaks before it renders
+// one. The two versions are independent: RouteVersion names the /api/vN
+// namespace, SchemaVersion names the Report JSON shape carried inside it.
+type Meta struct {
+	SchemaVersion int    `json:"schema_version"`
+	RouteVersion  string `json:"route_version"`
+}
+
+func (s *Server) handleMeta(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, Meta{
+		SchemaVersion: mechanics.ReportSchemaVersion,
+		RouteVersion:  "v1",
+	})
 }
 
 func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
@@ -230,6 +248,7 @@ func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
 	} else {
 		w.Header().Set("X-Assay-Undetermined", "false")
 	}
+	s.setScanFreshnessHeaders(w, report)
 	writeJSON(w, http.StatusOK, report)
 }
 

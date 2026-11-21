@@ -1,0 +1,13 @@
+# Keep the build context to what `go build ./cmd/assay` needs.
+.git
+.github
+.devcontainer
+assay-contracts/target
+assay-contracts/out
+coverage.out
+coverage.html
+coverage.log
+go-test.log
+assay
+Dockerfile
+.dockerignore

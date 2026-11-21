@@ -8,6 +8,20 @@ info:
     reference for the same endpoints, and docs/api-versioning.md states what
     the route version and `schema_version` promise.
 paths:
+  /api/v1/meta:
+    get:
+      summary: Report and route version metadata
+      description: >-
+        Tells a client which report schema and route version this server
+        speaks. The embedded UI calls this before rendering and refuses to
+        render a report whose schema_version it does not know.
+      responses:
+        '200':
+          description: The versions this server implements.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Meta'
   /api/v1/scan:
     get:
       summary: Scan an asset
@@ -39,6 +53,23 @@ paths:
         '200':
           description: Successful scan report. May indicate degraded state via header.
           headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum: ["no-store"]
+              description: >-
+                Dynamic answers are never stored: a verdict is a claim about
+                one instant, and an intermediary must not serve it later as if
+                it were current.
+            X-Assay-Oldest-Evidence-Age:
+              schema:
+                type: integer
+                minimum: 0
+              description: >-
+                Age in whole seconds of the oldest evidence timestamp that
+                contributed to the report, falling back to scanned_at when the
+                report carries no evidence timestamps. This is data age, not
+                the RFC 9111 Age of a cached response.
             X-Assay-Undetermined:
               schema:
                 type: string
@@ -721,6 +752,19 @@ components:
           type: string
         probe_url:
           type: string
+    Meta:
+      type: object
+      description: The body of GET /api/v1/meta.
+      required: [schema_version, route_version]
+      properties:
+        schema_version:
+          type: integer
+          description: >-
+            The Report schema this server emits. A client must refuse to
+            render a report whose schema_version it does not implement.
+        route_version:
+          type: string
+          description: The /api/vN namespace this server implements.
     Metrics:
       type: object
       description: >-

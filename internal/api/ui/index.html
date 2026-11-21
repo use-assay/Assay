@@ -89,6 +89,9 @@
   .err { border: 1px solid var(--critical); color: var(--critical);
          border-radius: 6px; padding: .8rem 1rem; margin-top: 1.5rem; }
   .err.banner { border-color: var(--medium); color: var(--medium); background: var(--panel); }
+  #compat:empty { display: none; }
+  #compat .err { margin: 0 0 1.5rem; }
+  #compat button { margin-left: .6rem; padding: .25rem .7rem; font-size: .85rem; }
 
   /* Degraded scan (undetermined). This is a different answer from a clean
      one, not a footnote on it, so it gets its own panel and accent rather
@@ -130,6 +133,8 @@
   <h1>Assay</h1>
   <p class="tagline">Can the issuer of this asset freeze or take your balance? Answered from the ledger's own rules.</p>
 
+  <div id="compat" role="alert"></div>
+
   <form id="f">
     <div class="field">
       <label for="asset">Asset (CODE-ISSUER)</label>
@@ -156,6 +161,14 @@
 const out = document.getElementById('out');
 const input = document.getElementById('asset');
 const go = document.getElementById('go');
+const compat = document.getElementById('compat');
+
+// EXPECTED_SCHEMA_VERSION is the report shape this page knows how to render.
+// It must equal mechanics.ReportSchemaVersion in the server that serves it;
+// internal/api/ui_test.go pins the two together. A cached older page served
+// against a newer API must refuse to render rather than misread the body.
+const EXPECTED_SCHEMA_VERSION = 1;
+let incompatible = false;
 
 const SEV_NOTE = {
   clear: 'The issuer holds no authorization flags.',
@@ -244,6 +257,47 @@ function errorBox(title, detail, extra) {
   return box;
 }
 
+// reloadPrompt is the only recovery a schema mismatch has: the page and the
+// API must be the same build. It is rendered as textContent-built nodes, like
+// every other dynamic element on this page.
+function reloadPrompt(detail) {
+  const box = el('div', 'err banner');
+  box.append(el('strong', null, 'This page is out of date.'));
+  box.append(document.createTextNode(' ' + String(detail) +
+    ' Reload to fetch the version that matches this API.'));
+  const button = el('button', null, 'Reload');
+  button.type = 'button';
+  button.addEventListener('click', () => window.location.reload());
+  box.append(button);
+  return box;
+}
+
+function blockIncompatible(detail) {
+  incompatible = true;
+  compat.replaceChildren(reloadPrompt(detail));
+  go.disabled = true;
+  input.disabled = true;
+}
+
+// checkAPIVersion asks the server which report schema it emits before the user
+// scans. A failed request is not treated as a mismatch: the scan response is
+// checked again before rendering, so a transient failure cannot silently pair
+// this page with an incompatible body.
+async function checkAPIVersion() {
+  try {
+    const r = await fetch('/api/v1/meta', { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const meta = await r.json();
+    if (meta.schema_version !== EXPECTED_SCHEMA_VERSION) {
+      blockIncompatible('The server reports report schema ' + String(meta.schema_version) +
+        '; this page expects ' + EXPECTED_SCHEMA_VERSION + '.');
+    }
+  } catch (err) {
+    compat.replaceChildren(note('Could not confirm the API version (' + String(err.message) +
+      '). A scan will check it before rendering.'));
+  }
+}
+
 function fmtTime(value) {
   const d = new Date(value);
   if (isNaN(d.getTime())) return value ? String(value) : 'unknown time';
@@ -283,11 +337,18 @@ async function scan() {
         'This is not a safety result. Assay reports only what it fetched.'));
       return;
     }
+    if (body.schema_version !== EXPECTED_SCHEMA_VERSION) {
+      blockIncompatible('The server returned report schema ' + String(body.schema_version) +
+        '; this page expects ' + EXPECTED_SCHEMA_VERSION + '.');
+      out.replaceChildren(errorBox('Could not render this scan.',
+        'The report schema does not match this page, so its fields cannot be trusted here.'));
+      return;
+    }
     await render(body, r.headers.get('X-Assay-Undetermined') === 'true', asset);
   } catch (err) {
     out.replaceChildren(errorBox('Request failed.', err.message));
   } finally {
-    go.disabled = false;
+    go.disabled = incompatible;
   }
 }
 
@@ -548,9 +609,10 @@ function transitionNode(t) {
   return box;
 }
 
-(function init() {
+(async function init() {
+  await checkAPIVersion();
   const asset = new URLSearchParams(window.location.search).get('asset');
-  if (asset) { input.value = asset; scan(); }
+  if (asset && !incompatible) { input.value = asset; scan(); }
 })();
 </script>
 </body>

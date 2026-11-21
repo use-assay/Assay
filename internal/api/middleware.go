@@ -105,7 +105,7 @@ func (s *Server) withCORS(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Accept, "+requestIDHeader)
-			w.Header().Set("Access-Control-Expose-Headers", requestIDHeader+", X-Assay-Undetermined, Retry-After")
+			w.Header().Set("Access-Control-Expose-Headers", requestIDHeader+", X-Assay-Undetermined, "+oldestEvidenceAgeHeader+", Retry-After")
 			if r.Method == http.MethodOptions {
 				w.WriteHeader(http.StatusNoContent)
 				return

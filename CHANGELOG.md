@@ -113,6 +113,13 @@ matching section — see [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## CLI and HTTP API
 
+- **2026-11-20 — container image, version metadata, cache headers.** The
+  repository gains a static, non-root container image with a built-in
+  `/healthz` probe and a `/data` history volume; `GET /api/v1/meta` reports the
+  report schema and route version the embedded UI checks before rendering;
+  dynamic responses are `Cache-Control: no-store` and a scan carries
+  `X-Assay-Oldest-Evidence-Age`; `assay healthcheck` probes a running server
+  ([#430](https://github.com/use-assay/Assay/issues/430)–[#433](https://github.com/use-assay/Assay/issues/433)).
 - **2026-10-20 — `assay diff`, offline bundles, verify-all script.** `diff`
   explains what changed between two observations; the offline bundle archives
   the exact source bytes behind an attestation and verifies them without a

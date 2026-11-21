@@ -82,6 +82,17 @@ func TestScanResponseGolden(t *testing.T) {
 		t.Fatalf("status = %d, want 200; body:\n%s", rec.Code, rec.Body.String())
 	}
 
+	// The response is a claim about one instant. It must not be stored by an
+	// intermediary, and the age of its oldest input must travel with it.
+	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store", got)
+	}
+	// goldenClock pins both the scan and the evidence timestamps, so the
+	// oldest signal is exactly as old as the response.
+	if got := rec.Header().Get("X-Assay-Oldest-Evidence-Age"); got != "0" {
+		t.Errorf("X-Assay-Oldest-Evidence-Age = %q, want 0", got)
+	}
+
 	got := normalizeGoldenJSON(t, rec.Body.Bytes())
 	goldenPath := filepath.Join("testdata", "scan-"+goldenSubject+".json")
 

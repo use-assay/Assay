@@ -93,6 +93,8 @@ func usage(w io.Writer) {
   assay checks                    print every check's ID and description
   assay serve [-addr] [-history PATH]
                                   serve the HTTP API and UI
+  assay healthcheck [-url URL]
+                                  probe a running server's /healthz endpoint
   assay version                   print scanner identity, preimage encodings
                                   and build (VCS, Go) information
 
@@ -152,6 +154,8 @@ func runWith(args []string, d commandDeps) error {
 		return runChecks(args[1:], d)
 	case "serve":
 		return d.serve(args[1:], log)
+	case "healthcheck":
+		return runHealthcheck(args[1:])
 	case "version", "-version", "--version":
 		// The identity form works both as a subcommand and as the
 		// conventional top-level flag, so `assay version`, `assay -version`
