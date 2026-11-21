@@ -112,6 +112,8 @@ func (s *Severity) UnmarshalJSON(b []byte) error {
 		*s = High
 	case `"critical"`:
 		*s = Critical
+	case `"unevaluated"`:
+		*s = Unevaluated
 	default:
 		return fmt.Errorf("mechanics: unknown severity %s", b)
 	}
