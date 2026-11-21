@@ -68,6 +68,7 @@ Every Go package, its responsibility, and the boundary it must respect.
 | `internal/replay` | Records every upstream response a live scan fetches (manifest + bodies) and replays a scan from that recording. | Filesystem I/O for recordings only. The replayer replaces the HTTP transport outright, so a replay never reaches the network. |
 | `internal/registry` | Reads the Assay safety registry on-chain through Soroban RPC simulation. | Outbound HTTP to Soroban RPC; read-only simulation; no signing or contract state mutation. |
 | `internal/version` | The scanner version identity recorded with every eval run. | No I/O. Leaf package. |
+| `internal/clockskew` | Records upstream Date headers that disagree with the scanner host's wall clock beyond the configured threshold. | No network I/O of its own; wraps the HTTP transport. Diagnostic only; does not affect scan results or timestamps. |
 
 The two Soroban contracts:
 

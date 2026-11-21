@@ -66,6 +66,46 @@ the message text.
   consumers must not require fields the additive-change policy is allowed to
   add later.
 
+### CORS policy
+
+`GET /api/v1/*` is intended to be called from browsers on any origin.
+Every response from the API surface carries:
+
+```
+Access-Control-Allow-Origin: *
+Access-Control-Allow-Methods: GET, OPTIONS
+Access-Control-Allow-Headers: Accept, Content-Type, X-Request-Id
+```
+
+Preflight `OPTIONS` requests are answered with `204 No Content` and the same
+headers. No credentials or cookies are sent or accepted; the wildcard origin
+is safe for a read-only, unauthenticated API.
+
+### Error bodies
+
+Every non-2xx response body is JSON with two fields:
+
+```json
+{ "error": "<human-readable message>", "code": "<stable-code>" }
+```
+
+The `code` field is a stable string identifier — it is part of the API
+contract and will not change between minor versions. Consumers should branch
+on `code`, never on the `error` string, which may change.
+
+| Code | Status | Meaning |
+| --- | --- | --- |
+| `missing_asset` | 400 | No `?asset=` parameter was supplied. |
+| `invalid_asset` | 400 | The `asset` parameter could not be parsed (bad code, bad issuer, or native asset). |
+| `invalid_holder` | 400 | The `holder` parameter is present but not a valid G… account ID. |
+| `invalid_parameter` | 400 | A numeric parameter (`max_age_secs`, `limit`, `cursor`) was not a valid integer or was out of range. |
+| `missing_account` | 400 | No `?account=` parameter was supplied to the exposure endpoint. |
+| `invalid_account` | 400 | The `account` parameter is not a valid G… account ID. |
+| `asset_not_found` | 404 | The asset was not found on the Stellar ledger. |
+| `account_not_found` | 404 | The account was not found on the Stellar ledger. |
+| `upstream_unavailable` | 502 | An upstream source (Horizon or a reputation source) could not be reached. |
+| `rate_limited` | 429 | The exposure endpoint rate limit was exceeded. |
+
 ### The native asset
 
 The native asset (XLM) has no issuer account, so there are no authorization

@@ -7,3 +7,9 @@ internal/attest/testdata/vectors/*.preimage -text
 # internal/api: checkout must not translate its line endings, or a Windows
 # clone fails the comparison on formatting alone.
 internal/api/testdata/*.json text eol=lf
+
+# TestDocsUsageBlockMatchesBinary does a literal string search for the fenced
+# usage block. CRLF line endings on Windows change \n to \r\n, breaking the
+# match. Force LF for all Markdown so the test passes on every platform.
+docs/**/*.md text eol=lf
+*.md text eol=lf

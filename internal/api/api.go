@@ -120,7 +120,7 @@ func (s *Server) Handler() http.Handler {
 		}
 		mux.HandleFunc(route, handler)
 	}
-	return s.withObservability(s.withCORS(mux))
+	return withCORS(s.withObservability(mux))
 }
 
 func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
@@ -137,45 +137,47 @@ func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(b)
 }
 
-// Error codes. These are the stable identifiers API consumers should branch on;
-// the human-readable error message may change, the code will not.
+// ErrorCode is a stable machine-readable identifier present in every error
+// body. The set is defined once here and kept in sync with openapi.yaml and
+// docs/api.md; consumers branch on Code, never on the human-readable Error
+// string.
+type ErrorCode string
+
 const (
-	codeAssetNotFound   = "asset_not_found"
-	codeAccountNotFound = "account_not_found"
-	codeInvalidAsset    = "invalid_asset"
-	codeInvalidHolder   = "invalid_holder"
-	codeInvalidParam    = "invalid_param"
-	codeMissingParam    = "missing_param"
-	codeUpstreamUnavail = "upstream_unavailable"
-	codeRateLimited     = "rate_limited"
+	codeMissingAsset        ErrorCode = "missing_asset"
+	codeInvalidAsset        ErrorCode = "invalid_asset"
+	codeInvalidHolder       ErrorCode = "invalid_holder"
+	codeInvalidParameter    ErrorCode = "invalid_parameter"
+	codeMissingAccount      ErrorCode = "missing_account"
+	codeInvalidAccount      ErrorCode = "invalid_account"
+	codeAssetNotFound       ErrorCode = "asset_not_found"
+	codeAccountNotFound     ErrorCode = "account_not_found"
+	codeUpstreamUnavailable ErrorCode = "upstream_unavailable"
+	codeRateLimited         ErrorCode = "rate_limited"
 )
 
 type errorBody struct {
-	Error string `json:"error"`
-	Code  string `json:"code"`
-}
-
-func apiErr(code, message string) errorBody {
-	return errorBody{Error: message, Code: code}
+	Error string    `json:"error"`
+	Code  ErrorCode `json:"code"`
 }
 
 func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
 	raw := r.URL.Query().Get("asset")
 	if raw == "" {
-		writeJSON(w, http.StatusBadRequest, apiErr(codeMissingParam, "missing ?asset=CODE-ISSUER"))
+		writeJSON(w, http.StatusBadRequest, errorBody{"missing ?asset=CODE-ISSUER", codeMissingAsset})
 		return
 	}
 
 	asset, err := scan.ParseAsset(raw)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, apiErr(codeInvalidAsset, err.Error()))
+		writeJSON(w, http.StatusBadRequest, errorBody{err.Error(), codeInvalidAsset})
 		return
 	}
 
 	holder := r.URL.Query().Get("holder")
 	if holder != "" {
 		if err := scan.ValidateHolder(holder); err != nil {
-			writeJSON(w, http.StatusBadRequest, apiErr(codeInvalidHolder, err.Error()))
+			writeJSON(w, http.StatusBadRequest, errorBody{err.Error(), codeInvalidHolder})
 			return
 		}
 	}
@@ -187,7 +189,7 @@ func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
 	if maxAgeParam != "" {
 		secs, err := strconv.ParseInt(maxAgeParam, 10, 64)
 		if err != nil || secs < 0 {
-			writeJSON(w, http.StatusBadRequest, apiErr(codeInvalidParam, "invalid max_age_secs"))
+			writeJSON(w, http.StatusBadRequest, errorBody{"invalid max_age_secs", codeInvalidParameter})
 			return
 		}
 	}
@@ -206,7 +208,7 @@ func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		if errors.Is(err, horizon.ErrNotFound) {
-			writeJSON(w, http.StatusNotFound, apiErr(codeAssetNotFound, "asset not found on the ledger"))
+			writeJSON(w, http.StatusNotFound, errorBody{"asset not found on the ledger", codeAssetNotFound})
 			return
 		}
 		// The per-request logger is used so this line carries the same
@@ -215,7 +217,7 @@ func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
 		// The upstream error is returned rather than a generic message: a user
 		// deciding whether to trust an asset needs to know the difference
 		// between "safe" and "we could not check".
-		writeJSON(w, http.StatusBadGateway, apiErr(codeUpstreamUnavail, "scan failed: "+err.Error()))
+		writeJSON(w, http.StatusBadGateway, errorBody{"scan failed: " + err.Error(), codeUpstreamUnavailable})
 		return
 	}
 

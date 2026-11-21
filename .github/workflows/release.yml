@@ -118,6 +118,19 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: package eval dataset
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          tarball="dist/eval-dataset-${tag}.tar.gz"
+          # Package the labelled corpus — fixtures, manifests, provenance and
+          # licence — as a citable, checksummed artifact (issue #385). The
+          # archive root is eval-dataset/ so a verifier can unpack it without
+          # collision.
+          tar -czf "$tarball" \
+            --transform 's|^internal/mechanics/testdata|eval-dataset|' \
+            internal/mechanics/testdata
+          echo "eval dataset packaged: $(ls -lh "$tarball")"
+
       - name: checksum and notes
         run: |
           tag="${GITHUB_REF_NAME}"
@@ -216,7 +229,7 @@ jobs:
             echo "::error::release ${GITHUB_REF_NAME} already exists; delete it deliberately rather than re-running"
             exit 1
           fi
-          gh release create "${GITHUB_REF_NAME}" dist/assay dist/assay.sha256 \
+          gh release create "${GITHUB_REF_NAME}" dist/assay dist/assay.sha256 dist/eval-dataset-*.tar.gz \
             --repo "${GITHUB_REPOSITORY}" \
             --title "assay ${GITHUB_REF_NAME}" \
             --notes-file dist/notes.md \

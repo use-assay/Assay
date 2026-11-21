@@ -98,11 +98,11 @@ type exposureAsset struct {
 func (s *Server) handleExposure(w http.ResponseWriter, r *http.Request) {
 	account := r.URL.Query().Get("account")
 	if account == "" {
-		writeJSON(w, http.StatusBadRequest, apiErr(codeMissingParam, "missing ?account=G... address"))
+		writeJSON(w, http.StatusBadRequest, errorBody{"missing ?account=G... address", codeMissingAccount})
 		return
 	}
 	if err := scan.ValidateHolder(account); err != nil {
-		writeJSON(w, http.StatusBadRequest, apiErr(codeInvalidHolder, err.Error()))
+		writeJSON(w, http.StatusBadRequest, errorBody{err.Error(), codeInvalidAccount})
 		return
 	}
 
@@ -110,7 +110,7 @@ func (s *Server) handleExposure(w http.ResponseWriter, r *http.Request) {
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 1 {
-			writeJSON(w, http.StatusBadRequest, apiErr(codeInvalidParam, "invalid limit: must be a positive integer"))
+			writeJSON(w, http.StatusBadRequest, errorBody{"invalid limit: must be a positive integer", codeInvalidParameter})
 			return
 		}
 		// The bound is enforced by clamping rather than rejecting: a caller
@@ -125,7 +125,7 @@ func (s *Server) handleExposure(w http.ResponseWriter, r *http.Request) {
 	if raw := r.URL.Query().Get("cursor"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 0 {
-			writeJSON(w, http.StatusBadRequest, apiErr(codeInvalidParam, "invalid cursor: must be a non-negative integer"))
+			writeJSON(w, http.StatusBadRequest, errorBody{"invalid cursor: must be a non-negative integer", codeInvalidParameter})
 			return
 		}
 		cursor = n
@@ -137,11 +137,11 @@ func (s *Server) handleExposure(w http.ResponseWriter, r *http.Request) {
 	trustlines, err := s.Scanner.Horizon.Trustlines(ctx, account)
 	if err != nil {
 		if errors.Is(err, horizon.ErrNotFound) {
-			writeJSON(w, http.StatusNotFound, apiErr(codeAccountNotFound, "account not found on the ledger"))
+			writeJSON(w, http.StatusNotFound, errorBody{"account not found on the ledger", codeAccountNotFound})
 			return
 		}
 		s.loggerFrom(r.Context()).Error("exposure: trustline fetch failed", "account", account, "err", err)
-		writeJSON(w, http.StatusBadGateway, apiErr(codeUpstreamUnavail, "exposure failed: "+err.Error()))
+		writeJSON(w, http.StatusBadGateway, errorBody{"exposure failed: " + err.Error(), codeUpstreamUnavailable})
 		return
 	}
 
@@ -237,10 +237,11 @@ func (s *Server) withExposureLimit(limiter *RateLimiter, next http.HandlerFunc) 
 				secs = 1
 			}
 			w.Header().Set("Retry-After", strconv.FormatInt(secs, 10))
-			writeJSON(w, http.StatusTooManyRequests, apiErr(codeRateLimited,
-				"rate limit exceeded: exposure runs full scans per asset; retry in "+
-					strconv.FormatInt(secs, 10)+"s",
-			))
+			writeJSON(w, http.StatusTooManyRequests, errorBody{
+				"rate limit exceeded: exposure runs full scans per asset; retry in " +
+					strconv.FormatInt(secs, 10) + "s",
+				codeRateLimited,
+			})
 			return
 		}
 		next(w, r)

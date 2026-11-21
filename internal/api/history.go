@@ -64,13 +64,13 @@ type historyResponse struct {
 func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 	raw := r.URL.Query().Get("asset")
 	if raw == "" {
-		writeJSON(w, http.StatusBadRequest, apiErr(codeMissingParam, "missing ?asset=CODE-ISSUER"))
+		writeJSON(w, http.StatusBadRequest, errorBody{"missing ?asset=CODE-ISSUER", codeMissingAsset})
 		return
 	}
 
 	asset, err := scan.ParseAsset(raw)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, apiErr(codeInvalidAsset, err.Error()))
+		writeJSON(w, http.StatusBadRequest, errorBody{err.Error(), codeInvalidAsset})
 		return
 	}
 
