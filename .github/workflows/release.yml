@@ -222,6 +222,92 @@ jobs:
             --notes-file dist/notes.md \
             --verify-tag
 
+  cross:
+    name: build ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: arm64
+            asset: assay-linux-arm64
+          - goos: darwin
+            goarch: amd64
+            asset: assay-darwin-amd64
+          - goos: darwin
+            goarch: arm64
+            asset: assay-darwin-arm64
+          - goos: windows
+            goarch: amd64
+            asset: assay-windows-amd64.exe
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: build cross-compiled binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOBIN: ${{ github.workspace }}/dist
+          CGO_ENABLED: "0"
+        run: |
+          if [ "${GITHUB_REPOSITORY}" != "use-assay/assay" ]; then
+            git config --global --add \
+              "url.https://github.com/${GITHUB_REPOSITORY}.insteadOf" \
+              "https://github.com/use-assay/assay"
+            git config --global --add \
+              "url.https://github.com/${GITHUB_REPOSITORY}.insteadOf" \
+              "https://github.com/use-assay/assay.git"
+            export GONOPROXY="github.com/use-assay/assay"
+            export GONOSUMDB="github.com/use-assay/assay"
+          fi
+          go install -trimpath "github.com/use-assay/assay/cmd/assay@${GITHUB_REF_NAME}"
+          src="dist/assay"
+          [ "${GOOS}" = "windows" ] && src="dist/assay.exe"
+          mv "${src}" "dist/${{ matrix.asset }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cross-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/${{ matrix.asset }}
+          retention-days: 1
+
+  publish-cross:
+    name: attach cross-compiled binaries to release
+    runs-on: ubuntu-latest
+    needs: [release, cross]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: cross-*
+          merge-multiple: true
+          path: dist
+      - name: generate combined checksums
+        run: |
+          (
+            cd dist
+            find . -maxdepth 1 -type f -printf '%P\0' \
+              | LC_ALL=C sort -z \
+              | xargs -0 sha256sum > assay-cross-checksums.txt
+          )
+          cat dist/assay-cross-checksums.txt
+      - name: upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${GITHUB_REF_NAME}" \
+            dist/assay-linux-arm64 \
+            dist/assay-darwin-amd64 \
+            dist/assay-darwin-arm64 \
+            dist/assay-windows-amd64.exe \
+            dist/assay-cross-checksums.txt \
+            --repo "${GITHUB_REPOSITORY}" \
+            --clobber
+
   eval-dataset:
     name: Publish eval dataset
     runs-on: ubuntu-latest

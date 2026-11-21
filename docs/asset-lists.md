@@ -75,6 +75,9 @@ failure is recorded against that list alone.
   collects them; its web UI is at https://stellar.expert/asset-lists.
 - SEP-0042 names reference implementations: LOBSTR's curated list, Soroswap's
   token list, and StellarExpert's Top 50 for pubnet and testnet.
+- [`docs/examples/asset-lists.txt`](examples/asset-lists.txt) is a ready-to-use
+  starting point: it lists the two most common pubnet lists with their caveats,
+  verified live, with copy-paste commands.
 
 ## How a list appears in a report
 

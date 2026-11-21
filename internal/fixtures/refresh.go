@@ -139,6 +139,19 @@ func (r *Refresher) fetch(ctx context.Context, client *http.Client, s Source) ([
 	return body, nil
 }
 
+// Apply writes a set of changes to the fixture root and updates the capture
+// date in PROVENANCE.md and manifest.json. It is the write half of Refresh:
+// callers that need to inspect the changes before committing (for example to
+// run a verdict check) can call Refresh with write=false, inspect Result, and
+// then call Apply when they are ready to commit.
+func (r *Refresher) Apply(root, subject string, changes []Change) error {
+	now := r.Now
+	if now == nil {
+		now = time.Now
+	}
+	return writeAll(root, subject, now(), changes)
+}
+
 // writeAll replaces the changed files and then records the capture date.
 func writeAll(root, subject string, date time.Time, changes []Change) error {
 	for _, c := range changes {

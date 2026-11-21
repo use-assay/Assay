@@ -325,6 +325,34 @@ components:
         ledger_sequence:
           type: integer
           description: Alias for latest_ledger.
+    SourceOutcome:
+      type: object
+      description: >-
+        Per-source outcome summary for one data source consulted during a scan.
+        JSON-only, outside the evidence preimage.
+      required: [source, outcome]
+      properties:
+        source:
+          type: string
+          description: >-
+            Stable identifier matching the source names used in Evidence
+            (e.g. "horizon", "stellar.toml", "stellar.expert/directory").
+        url:
+          type: string
+          description: The endpoint that was consulted, when known.
+        outcome:
+          type: string
+          enum: [answered, not_listed, failed, skipped]
+          description: >-
+            answered: source returned data. not_listed: source answered but
+            had no entry for this asset. failed: fetch or parse error.
+            skipped: source was not consulted (e.g. no home_domain).
+        retrieved_at:
+          type: string
+          format: date-time
+          description: >-
+            When the source answered or when the attempt was made for a
+            failed fetch. Zero for skipped sources.
     ClockSkew:
       type: object
       description: >-
@@ -475,6 +503,15 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Evidence'
+        sources:
+          type: array
+          description: >-
+            Per-source outcome summary: each data source consulted during the
+            scan, with its outcome (answered, not_listed, failed, skipped) and
+            retrieval time. JSON-only, outside the evidence preimage. Omitted
+            when no checks ran.
+          items:
+            $ref: '#/components/schemas/SourceOutcome'
         clock_skews:
           type: array
           description: Present only when an upstream Date header exceeds the local clock-skew threshold.

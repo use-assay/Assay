@@ -147,6 +147,42 @@
   "scanner_bound": true,
   "schema_version": 1,
   "severity": "medium",
+  "sources": [
+    {
+      "outcome": "answered",
+      "retrieved_at": "2026-08-10T00:00:00Z",
+      "source": "horizon"
+    },
+    {
+      "outcome": "answered",
+      "retrieved_at": "2026-08-10T00:00:00Z",
+      "source": "horizon/account"
+    },
+    {
+      "outcome": "failed",
+      "retrieved_at": "2026-08-10T00:00:00Z",
+      "source": "stellar.toml",
+      "url": "https://circle.com/.well-known/stellar.toml"
+    },
+    {
+      "outcome": "answered",
+      "retrieved_at": "2026-08-10T00:00:00Z",
+      "source": "stellar.expert/directory",
+      "url": "https://api.stellar.expert/explorer/directory/GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+    },
+    {
+      "outcome": "answered",
+      "retrieved_at": "2026-08-10T00:00:00Z",
+      "source": "stellar.expert/blocked-domains",
+      "url": "https://api.stellar.expert/explorer/directory/blocked-domains/circle.com"
+    },
+    {
+      "outcome": "failed",
+      "retrieved_at": "2026-08-10T00:00:00Z",
+      "source": "stellar.expert/asset",
+      "url": "https://api.stellar.expert/explorer/public/asset/USDC-GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+    }
+  ],
   "stale": false,
   "state": "valid",
   "undetermined": false,
