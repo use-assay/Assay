@@ -274,14 +274,33 @@ alongside each difference.
 
 ## What this does not do
 
-- **No scheduling.** Nothing scans on a timer; history grows when someone calls
-  `/api/v1/scan`.
 - **No backfill.** There is no history for scans that happened before the store
   existed, and no way to import one.
 - **No CLI surface change.** The `assay history` subcommand is a separate,
   report-derived view ([cli.md](cli.md)); this document describes the HTTP
   endpoint. The issue that added the endpoint explicitly scoped the CLI out.
 - **No deletion API.** Retention is the only removal, and it is oldest-first.
+
+## Scheduled observation
+
+`assay serve` can now run scheduled scans of a configured asset list and append
+observations to history automatically:
+
+```sh
+assay serve -observe /path/to/assets.txt -observe-interval 6h
+```
+
+- `-observe FILE` — path to a text file with one `CODE-ISSUER` asset per line.
+  Empty lines and lines starting with `#` are ignored.
+- `-observe-interval DURATION` — interval between scans (default `6h`).
+
+Each scheduled scan uses the same scan path as `/api/v1/scan`, records an
+observation in the history store, and respects upstream rate limits. Observations
+from scheduled scans are marked as determined by the scan result (undetermined
+scans are recorded as such).
+
+The scheduler runs the first scan immediately on startup, then repeats at the
+configured interval. It stops cleanly when the server shuts down.
 
 ## Tests
 

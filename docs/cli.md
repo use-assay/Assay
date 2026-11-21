@@ -16,7 +16,7 @@ usage:
                                   verify an offline bundle without a network
   assay diff [-json] A.json B.json
                                   compare two saved reports and print what changed
-  assay history [-guarantee] [-raw] CODE-ISSUER
+  assay history [-guarantee] [-raw] [-server URL] CODE-ISSUER
                                   print the asset's observation history
   assay registry-history [-rpc URL] [-contract C...] [-json] ASSET
                                   print the registry's attest/revoke events for an asset
@@ -24,7 +24,7 @@ usage:
   assay verify-preimage [-version VERSION] HASH PREIMAGE
                                   compare a stored hash with canonical preimage bytes
   assay checks                    print every check's ID and description
-  assay serve [-addr] [-history PATH]
+  assay serve [-addr] [-history PATH] [-observe FILE] [-observe-interval DURATION]
                                   serve the HTTP API and UI
   assay version                   print scanner identity, preimage encodings
                                   and build (VCS, Go) information
@@ -51,6 +51,15 @@ The attestation command additionally accepts:
                           reproduced from a fresh scan
   -bundle OUT             also write an offline verification bundle (raw
                           source bytes, report, preimage, digest) to OUT
+
+The history command additionally accepts:
+  -server URL             fetch history from a running assay server instead of
+                          computing from a local scan (e.g. http://localhost:8080)
+
+The serve command additionally accepts:
+  -observe FILE           path to asset list file for scheduled observation
+  -observe-interval DURATION
+                          interval between scheduled scans (default 6h)
 ```
 
 Commands that scan also accept:

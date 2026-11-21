@@ -234,6 +234,64 @@ Status codes:
   `limit` outside 1-256 (or not an integer), or a `before` that is not an
   RFC 3339 timestamp.
 
+### `GET /api/v1/events?asset=CODE-ISSUER`
+
+Opens a Server-Sent Events (SSE) stream that pushes a message whenever a
+stored observation produces a capability, severity, or accountability
+transition. This allows consumers to react to changes in real time without
+polling.
+
+Parameters:
+
+- `asset` (required): asset code and issuer. The stream delivers events for
+  all assets; the parameter is validated for format but does not filter the
+  stream in this version.
+
+Stream format:
+
+- Standard SSE: each event is a `data:` line with a JSON object, followed by
+  a blank line.
+- Heartbeats: a `:` comment line every 15 seconds to keep the connection
+  alive through proxies and load balancers.
+- The initial comment `: connected` is sent immediately after the headers.
+
+Event payload:
+
+```json
+{
+  "asset": "USDC-GA5Z...",
+  "transition": { ... },
+  "timestamp": "2026-01-15T12:34:56Z"
+}
+```
+
+The `transition` object has the same structure as the transitions returned by
+`GET /api/v1/history` (see the `Transition` schema in the OpenAPI document).
+A transition's `state` is `valid`, `unknown`, or `missing`; only `valid`
+transitions are pushed (transitions involving undetermined observations are
+not emitted).
+
+Limits:
+
+- Maximum 100 concurrent SSE connections per server instance (configurable via
+  `Server.EventsLimiter`). Excess connections receive `429 Too Many Requests`
+  with `code: "rate_limited"`.
+
+Status codes:
+
+- `200 OK`: SSE stream established. The connection stays open until the
+  client closes it or the server shuts down.
+- `400 Bad Request`: missing or invalid asset parameter.
+- `429 Too Many Requests`: concurrent connection limit reached.
+- `503 Service Unavailable`: SSE not supported by the server infrastructure.
+
+Status codes:
+
+- `200 OK`: history returned — including an empty one. An asset with no
+  observations is a successful result with `state: "missing"`, never a 404:
+  "we have never looked" and "the request failed" are different answers.
+- `400 Bad Request`: missing or invalid asset, or the network's native asset.
+
 ### `GET /api/v1/exposure?account=G...&limit=10&cursor=0`
 
 Lists the trustlines an account holds and answers, per asset, with the asset's

@@ -121,6 +121,40 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /api/v1/events:
+    get:
+      summary: Server-sent events stream for capability, severity, and accountability transitions
+      description: >-
+        Opens a long-lived SSE connection that pushes a message whenever a stored
+        observation produces a transition. The stream includes heartbeats every
+        15 seconds to keep the connection alive through proxies. Connections are
+        capped at 100 concurrent clients per server instance.
+      responses:
+        '200':
+          description: A stream of transition events in SSE format.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: Each event is a JSON object with asset, transition, and timestamp fields.
+        '400':
+          description: Missing or invalid asset parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too many concurrent SSE connections. Retry-After header gives seconds to wait.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: SSE not supported by the server infrastructure.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/exposure:
     get:
       summary: List trustlines held by an account with per-asset severity and trustline finding
