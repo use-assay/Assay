@@ -2057,12 +2057,40 @@ fn version_returns_interface_version() {
 /// The interface version is an ABI constant: it starts at 1 and only moves on
 /// a deliberate ABI change, which must be mirrored in docs/contract-interface.md.
 ///
-/// Version 2 is the #349 change — `Error::InvalidAsset` joined the error set.
-/// Version 3 is the #284 change: the stored `Safety` gained `preimage_version`,
-/// so a reader can tell which evidence encoding its `evidence_hash` used.
+/// Version 2 adds `cancel_admin_transfer` (#320). Version 3 is the #284
+/// change: the stored `Safety` gained `preimage_version`, so a reader can tell
+/// which evidence encoding its `evidence_hash` used.
 #[test]
 fn interface_version_is_abi() {
     assert_eq!(INTERFACE_VERSION, 3);
+}
+
+/// Every bump of the constant must be recorded in the interface changelog. The
+/// rustdoc above the constant and the "Interface versioning" section of
+/// `docs/contract-interface.md` are the two places a consumer can learn what
+/// changed, so this test fails if the constant runs ahead of either.
+#[test]
+fn interface_version_is_documented() {
+    let doc = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../docs/contract-interface.md"),
+    )
+    .expect("read docs/contract-interface.md");
+    let entry = std::format!("- **Version {}**", INTERFACE_VERSION);
+    assert!(
+        doc.contains(&entry),
+        "docs/contract-interface.md has no changelog entry `{entry}` for INTERFACE_VERSION {INTERFACE_VERSION}"
+    );
+
+    let source = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"),
+    )
+    .expect("read src/lib.rs");
+    let rustdoc = std::format!("version {INTERFACE_VERSION}");
+    assert!(
+        source.contains(&rustdoc),
+        "the INTERFACE_VERSION rustdoc does not describe version {INTERFACE_VERSION}"
+    );
 }
 
 /// Results come back in the order the assets were asked for, and an asset that

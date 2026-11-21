@@ -21,7 +21,34 @@ import (
 // requestIDHeader is the response header the identifier is echoed in. It is
 // also accepted on input, so a caller that correlates across services can
 // supply its own and see this server use the same value.
+//
+// A caller-supplied value is accepted only when it is a short, opaque token:
+// 1–128 bytes of [A-Za-z0-9._:-]. The value is written to every log line of
+// the request and echoed to the caller, so an unbounded or arbitrary header
+// would bloat the logs and stop being useful as a grep key. Anything else is
+// ignored and a fresh identifier is generated, as if none had been sent.
 const requestIDHeader = "X-Request-Id"
+
+// maxRequestIDLen bounds a caller-supplied request identifier. Go accepts
+// headers up to 1 MB, which is far more than a correlation token needs.
+const maxRequestIDLen = 128
+
+// validRequestID reports whether id is safe to use as a request identifier.
+func validRequestID(id string) bool {
+	if len(id) == 0 || len(id) > maxRequestIDLen {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		switch {
+		case c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z', c >= '0' && c <= '9':
+		case c == '.', c == '_', c == ':', c == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
 
 // requestIDLogKey names the structured field the request identifier rides on
 // in every log line this package emits.
@@ -49,13 +76,15 @@ func RequestID(ctx context.Context) string {
 // to the handler and to the logs.
 //
 // The identifier comes from the caller's header when one is offered and is
-// otherwise freshly generated — 16 random bytes, hex-encoded. Both forms are
-// logged the same way: the log line records what identified the request, not
-// who chose it.
+// otherwise freshly generated — 16 random bytes, hex-encoded. An offered
+// value that is not a short safe token is ignored, not sanitised: a mangled
+// identifier would still be ambiguous, so the request gets a fresh one.
+// Both forms are logged the same way: the log line records what identified
+// the request, not who chose it.
 func (s *Server) withObservability(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := r.Header.Get(requestIDHeader)
-		if id == "" {
+		if !validRequestID(id) {
 			var b [16]byte
 			if _, err := rand.Read(b[:]); err != nil {
 				// A missing identifier degrades correlation; it must not

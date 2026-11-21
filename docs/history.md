@@ -149,8 +149,10 @@ The store lives in [`internal/history`](../internal/history):
   restart. That is deliberate: losing history is honest, whereas writing to a
   path nobody configured would be a surprise.
 - **File-backed on request.** `assay serve -history /var/lib/assay/history.jsonl`
-  loads the log at startup and rewrites it on every append. The rewrite is whole
-  and atomic (a temporary file renamed over the target), so after each append
+  loads the log at startup and rewrites it on every append. The per-asset bound
+  comes from `-history-retention N` (default 256), the same flag the in-memory
+  store uses. The rewrite is whole and atomic (a temporary file renamed over the
+  target), so after each append
   the file is exactly the retained set and a crash cannot leave a half-written
   observation. The log is small and written at human rates; a full rewrite is
    simpler and more obviously correct than an append log with periodic
@@ -194,12 +196,14 @@ neither is visible from the JSON on disk:
 
 ### What is retained, and for how long
 
-**Retention is a count per asset, not a time window.** The cap is
+**Retention is a count per asset, not a time window.** The default cap is
 `history.DefaultRetention` — **256 observations per asset** — and when it is
-exceeded the **oldest observation is evicted first**. The bound exists to make an
-unbounded log impossible, not to save space: an observation is a few hundred
-bytes, and 256 of them far exceeds what any asset Assay has scanned has
-accumulated.
+exceeded the **oldest observation is evicted first**. A deployment can change
+the bound with `assay serve -history-retention N`; the flag applies to both the
+in-memory and the file-backed store, and a value below 1 is a usage error. The
+bound exists to make an unbounded log impossible, not to save space: an
+observation is a few hundred bytes, and 256 of them far exceeds what any asset
+Assay has scanned has accumulated.
 
 The response reports `retention` so a consumer that sees exactly that many
 observations can read the history as possibly truncated at the oldest end rather

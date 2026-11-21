@@ -102,9 +102,21 @@ a wasm hash.
   `get_safety` caller), and documentation-only changes.
 
 Adding `version()` itself establishes version 1: the interface as of that
-build is version 1. Version 2 adds `cancel_admin_transfer` and the
-`cancel_admin` event. The constant is an ABI value and is parsed by the Go ABI
-drift test, so it cannot drift from the deployed interface without a red build.
+build is version 1.
+
+### Version history
+
+- **Version 1** — `version()` and `get_safety_many`.
+- **Version 2** — `cancel_admin_transfer` and the `AdminTransferCancelled`
+  event.
+- **Version 3** — the stored `Safety` gains `preimage_version`, written by
+  `attest` and `attest_many`, so a verifier can tell which preimage encoding
+  produced `evidence_hash` ([#284](https://github.com/use-assay/Assay/issues/284)).
+
+The constant is an ABI value and is parsed by the Go ABI drift test, so it
+cannot drift from the deployed interface without a red build. The Rust test
+`interface_version_is_documented` fails if this history has no entry for the
+current constant.
 
 | Error | Code | Returned by |
 | --- | --- | --- |

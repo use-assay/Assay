@@ -26,6 +26,20 @@ carry these headers.
 Exposed response headers: `X-Request-Id`, `X-Assay-Undetermined`,
 `Retry-After`.
 
+## Request identifiers
+
+Every response carries `X-Request-Id`, and the same value is stamped on every
+log line the request produces. A caller may supply its own identifier in that
+header; it is accepted only when it is **1–128 bytes of `[A-Za-z0-9._:-]`**.
+Any other value — empty, over-long, or containing other characters — is
+ignored, and a fresh 32-character hex identifier is generated as if none had
+been sent. An accepted value is echoed unchanged and logged unchanged, so a
+caller that correlates across services keeps its own token.
+
+The rule exists because the identifier reaches both the operator's logs and a
+response header: an unbounded value would bloat every log line of the request,
+and arbitrary characters would make it useless as a grep key.
+
 ## Error Bodies
 
 Every error response includes a stable `code` field alongside the

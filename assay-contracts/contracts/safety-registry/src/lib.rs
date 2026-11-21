@@ -90,7 +90,10 @@ pub const POLICY_MASK_FREEZE_INCLUSIVE: u32 = MECH_AUTH_REVOCABLE | MECH_CLAWBAC
 /// shapes, the error codes, or the event schema change. Additive read-only
 /// entrypoints do not require a bump; removing or renaming one does. Version 1
 /// established the interface with [`Self::version`]; version 2 adds
-/// [`Self::cancel_admin_transfer`] and the [`AdminTransferCancelled`] event.
+/// [`Self::cancel_admin_transfer`] and the [`AdminTransferCancelled`] event;
+/// version 3 adds the `preimage_version` field to [`Safety`], written by
+/// [`Self::attest`] and [`Self::attest_many`], so a verifier can tell which
+/// preimage encoding produced `evidence_hash` (#284).
 pub const INTERFACE_VERSION: u32 = 3;
 
 /// Event emitted on every successful `attest` write. Rejected attestations
