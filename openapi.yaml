@@ -93,6 +93,34 @@ paths:
                 $ref: '#/components/schemas/History'
         '400':
           description: Missing or invalid asset, or the network's native asset.
+  /api/v1/attestation:
+    get:
+      summary: Derive the attestation arguments and preimage for an asset
+      description: >-
+        Scans the asset and derives the exact arguments of an on-chain attest()
+        call, including the preimage bytes that evidence_hash commits to. Returns
+        attestable: false with a reason when the scan cannot be attested (undetermined,
+        unevaluated, stale, or partial check set).
+      parameters:
+        - name: asset
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Asset code and issuer (e.g. USDC-GA5Z...)
+      responses:
+        '200':
+          description: Attestation arguments, or a refusal reason when not attestable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Attestation'
+        '400':
+          description: Missing or invalid asset parameter.
+        '404':
+          description: Asset not found on the ledger.
+        '502':
+          description: Upstream scan failure.
           content:
             application/json:
               schema:
@@ -214,6 +242,52 @@ paths:
                 type: string
 components:
   schemas:
+    Attestation:
+      type: object
+      description: >-
+        The body of GET /api/v1/attestation. When attestable is true, the caller
+        has the exact arguments of an on-chain attest() call. When false, reason
+        and error_kind explain what prevents attestation.
+      required: [attestable, severity, severity_name, flags, mechanics, evidence_hash, scanned_at]
+      properties:
+        attestable:
+          type: boolean
+        severity:
+          type: integer
+          description: Numeric severity (0=clear, 1=low, 2=medium, 3=high, 4=critical).
+        severity_name:
+          type: string
+        flags:
+          type: integer
+          description: The raw mechanic bitset.
+        mechanics:
+          type: array
+          items:
+            type: string
+        checks:
+          type: array
+          items:
+            type: string
+          description: Check IDs the scan ran; absent for pre-v2 reports.
+        network:
+          type: string
+          description: Full Stellar network passphrase; absent for pre-v3 reports.
+        evidence_hash:
+          type: string
+          description: Hex-encoded SHA-256 over the canonical preimage bytes.
+        scanned_at:
+          type: string
+          format: date-time
+        preimage:
+          type: string
+          description: The canonical preimage bytes as a human-readable string; absent for pre-v1 reports.
+        reason:
+          type: string
+          description: Why attestation was refused; present when attestable is false.
+        error_kind:
+          type: string
+          enum: [undetermined, unevaluated, stale, inconsistent, partial_check_set, scan_failed]
+          description: Machine-readable refusal kind; present when attestable is false.
     Error:
       type: object
       required: [error, code]
