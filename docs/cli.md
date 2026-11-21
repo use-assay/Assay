@@ -24,7 +24,7 @@ usage:
   assay verify-preimage [-version VERSION] HASH PREIMAGE
                                   compare a stored hash with canonical preimage bytes
   assay checks                    print every check's ID and description
-  assay serve [-addr] [-history PATH]
+  assay serve [-addr ADDR] [-history PATH] [-history-retention N]
                                   serve the HTTP API and UI
   assay version                   print scanner identity, preimage encodings
                                   and build (VCS, Go) information
@@ -59,6 +59,10 @@ Commands that scan also accept:
   as a comma-separated list or repeated. **No list is used by default**: nothing
   is hardcoded as authoritative, and no report changes unless you opt in. See
   [asset-lists.md](asset-lists.md).
+- `-cache-directory-ttl D` / `-cache-blocklist-ttl D` — reuse a curated
+  StellarExpert answer for `D`, per source; `0` disables caching of that source.
+- `-no-cache` — re-fetch both curated sources on every scan. It wins over
+  either TTL. See [caching.md](caching.md).
 
 ## Asset identifiers
 
@@ -337,14 +341,16 @@ see `docs/integrating.md` for what a consumer reads out of it, and
 ```
 ./assay serve -addr :8080
 ./assay serve -addr :8080 -history /var/lib/assay/history.jsonl
+./assay serve -addr :8080 -history /var/lib/assay/history.jsonl -history-retention 1024
 ```
 
 Each successful `GET /api/v1/scan` records an observation, and
 `GET /api/v1/history?asset=CODE-ISSUER` returns them in time order with the
 derived transitions. `-history` points that store at an append-only JSON Lines
 log so it survives a restart; without it, history is in memory and lost when the
-process exits. The default retention is 256 observations per asset and the
-policy is in [history.md](history.md).
+process exits. `-history-retention N` sets the per-asset observation bound for
+both forms; the default is 256, and a value below 1 is a usage error. The policy
+is in [history.md](history.md).
 
 ## assay version
 

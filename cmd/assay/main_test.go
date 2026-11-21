@@ -345,6 +345,9 @@ func TestDefaultDepsWired(t *testing.T) {
 	if d.scan == nil {
 		t.Error("defaultDeps left scan nil")
 	}
+	if d.scanner == nil {
+		t.Error("defaultDeps left scanner nil")
+	}
 	if d.serve == nil {
 		t.Error("defaultDeps left serve nil")
 	}

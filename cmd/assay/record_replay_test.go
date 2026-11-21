@@ -144,7 +144,7 @@ func TestScanRecordThenReplayIsDeterministic(t *testing.T) {
 	dir := t.TempDir()
 
 	// 1. Record a live scan.
-	scanFn, finish, err := scanFuncForRecording(nil, d, dir, "")
+	scanFn, finish, err := scanFuncForRecording(nil, scan.DefaultOptions(), d, dir, "")
 	if err != nil {
 		t.Fatalf("record setup: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestScanRecordThenReplayIsDeterministic(t *testing.T) {
 
 	// 3. Replay. No network exists to reach; an unrecorded request would be
 	// a loud error rather than a live fetch.
-	replayFn, _, err := scanFuncForRecording(nil, d, "", dir)
+	replayFn, _, err := scanFuncForRecording(nil, scan.DefaultOptions(), d, "", dir)
 	if err != nil {
 		t.Fatalf("replay setup: %v", err)
 	}
@@ -214,7 +214,7 @@ func TestRecordingManifestAndLoudReplayMiss(t *testing.T) {
 	d := commandDeps{stdout: io.Discard, stderr: io.Discard}
 	dir := t.TempDir()
 
-	scanFn, finish, err := scanFuncForRecording(nil, d, dir, "")
+	scanFn, finish, err := scanFuncForRecording(nil, scan.DefaultOptions(), d, dir, "")
 	if err != nil {
 		t.Fatalf("record setup: %v", err)
 	}
@@ -223,7 +223,7 @@ func TestRecordingManifestAndLoudReplayMiss(t *testing.T) {
 	}
 	finish()
 
-	replayFn, _, err := scanFuncForRecording(nil, d, "", dir)
+	replayFn, _, err := scanFuncForRecording(nil, scan.DefaultOptions(), d, "", dir)
 	if err != nil {
 		t.Fatalf("replay setup: %v", err)
 	}

@@ -64,6 +64,11 @@ matching section — see [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### safety-registry
 
+- **2026-10-21 — `INTERFACE_VERSION` 2 → 3: `Safety.preimage_version`.** The
+  stored `Safety` gains the version of the preimage encoding that produced its
+  `evidence_hash`, written by `attest` and `attest_many`, so a verifier no
+  longer has to guess which encoding a stored hash belongs to
+  ([#284](https://github.com/use-assay/Assay/issues/284)).
 - **2026-10-20 — `INTERFACE_VERSION` 1 → 2: `cancel_admin_transfer`.** The
   admin can withdraw a pending two-step transfer; a cancellation with
   nothing pending returns `NoPendingAdmin` rather than succeeding quietly,
