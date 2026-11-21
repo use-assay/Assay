@@ -64,6 +64,17 @@ matching section — see [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### safety-registry
 
+- **2026-11-21 — `INTERFACE_VERSION` 3 → 4: `Quorum::InvalidArguments`.**
+  `quorum` returned `Unavailable(0)` for `threshold == 0`, a threshold above
+  the deduplicated set, or a set above `MAX_ATTESTORS`, so a miscalibrated
+  consumer saw the same value as one whose attestors were all offline. It now
+  returns the new `InvalidArguments` variant, appended last so existing
+  variants keep their encoding; `Unavailable` is reserved for valid calls with
+  too few responders. A new variant was chosen over `Result<Quorum, Error>`
+  because it keeps the return type and every call site's shape, and keeps
+  Met, Unavailable, Contested and the invalid call as values an observer can
+  tell apart. `is_safe_quorum` still returns `false`
+  ([#567](https://github.com/use-assay/Assay/issues/567)).
 - **2026-10-20 — `INTERFACE_VERSION` 1 → 2: `cancel_admin_transfer`.** The
   admin can withdraw a pending two-step transfer; a cancellation with
   nothing pending returns `NoPendingAdmin` rather than succeeding quietly,

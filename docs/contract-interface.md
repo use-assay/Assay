@@ -59,7 +59,7 @@ pub const MAX_BATCH_SIZE: u32 = 50;
 
 /// The contract's interface version, bumped on every ABI change. See
 /// "Interface versioning" below for the bump rule.
-pub const INTERFACE_VERSION: u32 = 3;
+pub const INTERFACE_VERSION: u32 = 4;
 
 pub fn get_safety(env: Env, asset: Address) -> Option<Safety>;
 pub fn version(env: Env) -> u32;
@@ -86,7 +86,7 @@ struct is a supported argument type in soroban-sdk 27.
 ## Interface versioning
 
 `version()` is a read-only entrypoint that returns the contract's interface
-version (`INTERFACE_VERSION`), currently `3`. A consumer or a drift script can
+version (`INTERFACE_VERSION`), currently `4`. A consumer or a drift script can
 call it to ask "what is this contract?" instead of inferring the interface from
 a wasm hash.
 

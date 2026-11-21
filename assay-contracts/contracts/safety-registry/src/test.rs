@@ -2060,9 +2060,10 @@ fn version_returns_interface_version() {
 /// Version 2 is the #349 change — `Error::InvalidAsset` joined the error set.
 /// Version 3 is the #284 change: the stored `Safety` gained `preimage_version`,
 /// so a reader can tell which evidence encoding its `evidence_hash` used.
+/// Version 4 is the #567 change: `Quorum::InvalidArguments` joined the enum.
 #[test]
 fn interface_version_is_abi() {
-    assert_eq!(INTERFACE_VERSION, 3);
+    assert_eq!(INTERFACE_VERSION, 4);
 }
 
 /// Results come back in the order the assets were asked for, and an asset that
@@ -2336,7 +2337,7 @@ fn quorum_deduplicates_attestors_and_cannot_inflate_threshold() {
     // If threshold is 2, a duplicated single attestor cannot satisfy it.
     let attestors = vec![&env, admin.clone(), admin.clone(), admin.clone()];
     let res = client.quorum(&asset, &attestors, &2, &0);
-    assert_eq!(res, Quorum::Unavailable(0));
+    assert_eq!(res, Quorum::InvalidArguments);
 
     // Threshold 1 passes with the deduplicated single attestor
     let res1 = client.quorum(&asset, &attestors, &1, &0);
@@ -2349,6 +2350,95 @@ fn quorum_deduplicates_attestors_and_cannot_inflate_threshold() {
             attested_at: env.ledger().timestamp(),
             preimage_version: 4,
         })
+    );
+}
+
+// ---------------------------------------------------------------------------
+// #567: invalid arguments are distinguishable from zero responders
+// ---------------------------------------------------------------------------
+
+#[test]
+fn quorum_zero_threshold_is_invalid_arguments() {
+    let (env, client, admin) = setup();
+    let asset = Address::generate(&env);
+    client.attest(&asset, &SEVERITY_CLEAR, &0, &hash(&env));
+
+    let attestors = vec![&env, admin];
+    assert_eq!(
+        client.quorum(&asset, &attestors, &0, &0),
+        Quorum::InvalidArguments
+    );
+    assert!(!client.is_safe_quorum(&asset, &attestors, &0, &SEVERITY_CLEAR, &0));
+}
+
+#[test]
+fn quorum_threshold_above_deduplicated_set_is_invalid_arguments() {
+    let (env, client, admin) = setup();
+    let asset = Address::generate(&env);
+    let other = Address::generate(&env);
+    client.attest(&asset, &SEVERITY_CLEAR, &0, &hash(&env));
+
+    // Threshold above the raw set.
+    let attestors = vec![&env, admin.clone(), other.clone()];
+    assert_eq!(
+        client.quorum(&asset, &attestors, &3, &0),
+        Quorum::InvalidArguments
+    );
+
+    // Valid for the raw list (3 entries) but too large once deduplicated (2).
+    let with_dupes = vec![&env, admin.clone(), other.clone(), admin.clone()];
+    assert_eq!(
+        client.quorum(&asset, &with_dupes, &3, &0),
+        Quorum::InvalidArguments
+    );
+    assert!(!client.is_safe_quorum(&asset, &with_dupes, &3, &SEVERITY_CLEAR, &0));
+
+    // Empty set: any non-zero threshold exceeds it.
+    let empty: Vec<Address> = Vec::new(&env);
+    assert_eq!(
+        client.quorum(&asset, &empty, &1, &0),
+        Quorum::InvalidArguments
+    );
+}
+
+#[test]
+fn quorum_set_above_max_attestors_is_invalid_arguments() {
+    let (env, client, _admin) = setup();
+    let asset = Address::generate(&env);
+
+    let mut attestors = Vec::new(&env);
+    for _ in 0..(MAX_ATTESTORS + 1) {
+        attestors.push_back(Address::generate(&env));
+    }
+    assert_eq!(attestors.len(), MAX_ATTESTORS + 1);
+
+    assert_eq!(
+        client.quorum(&asset, &attestors, &1, &0),
+        Quorum::InvalidArguments
+    );
+    assert!(!client.is_safe_quorum(&asset, &attestors, &1, &SEVERITY_CLEAR, &0));
+}
+
+/// Valid arguments with no responders stay `Unavailable(0)`, so a caller can
+/// tell "my call is wrong" (`InvalidArguments`) from "attestors are silent".
+#[test]
+fn quorum_zero_responders_is_unavailable_not_invalid_arguments() {
+    let (env, client, _admin) = setup();
+    let asset = Address::generate(&env);
+
+    let attestors = vec![&env, Address::generate(&env), Address::generate(&env)];
+    let res = client.quorum(&asset, &attestors, &1, &0);
+    assert_eq!(res, Quorum::Unavailable(0));
+    assert_ne!(res, Quorum::InvalidArguments);
+
+    // Exactly MAX_ATTESTORS distinct attestors is still a valid call.
+    let mut at_bound = Vec::new(&env);
+    for _ in 0..MAX_ATTESTORS {
+        at_bound.push_back(Address::generate(&env));
+    }
+    assert_eq!(
+        client.quorum(&asset, &at_bound, &MAX_ATTESTORS, &0),
+        Quorum::Unavailable(0)
     );
 }
 
