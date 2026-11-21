@@ -14,3 +14,6 @@ soroban-sdk = "28.0.0"
 # dependency an integrator's contract can pull in.
 [dev-dependencies]
 soroban-sdk = { version = "28.0.0", features = ["testutils"] }
+# Only the tests depend on the registry crate, to register the real contract
+# and call it through this crate's client (same pattern as example-gate).
+assay-safety-registry = { path = "../../contracts/safety-registry" }

@@ -27,7 +27,7 @@
 //!
 //! [#26]: https://github.com/use-assay/Assay/issues/26
 
-use soroban_sdk::{contractclient, contracttype, Address, BytesN, Env};
+use soroban_sdk::{contractclient, contracttype, Address, BytesN, Env, Vec};
 
 // ---------------------------------------------------------------------------
 // The registry interface, as an integrator declares it.
@@ -48,16 +48,64 @@ pub struct Safety {
     pub preimage_version: u32,
 }
 
-/// The part of the registry this crate's callers use.
+/// Mirror of the registry's quorum result.
+///
+/// Variant names and payload shapes are ABI: an enum with payloads crosses the
+/// contract boundary as a vector headed by the variant name, so they must match
+/// the registry's `Quorum` exactly.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Quorum {
+    /// Quorum met: the conservative aggregate of the responding attestors.
+    Met(Safety),
+    /// Strictly fewer responding attestors than the threshold (or an invalid
+    /// threshold / attestor set). The payload is the responding count.
+    Unavailable(u32),
+    /// Enough attestors responded but they disagree on severity or flags. The
+    /// payload is the responding count.
+    Contested(u32),
+}
+
+/// The registry's read-only interface.
 #[contractclient(name = "SafetyRegistryClient")]
 pub trait SafetyRegistry {
+    /// The current contract admin, `None` before the registry is initialized.
+    fn admin(env: Env) -> Option<Address>;
+    /// The proposed admin during a two-step transfer, if any.
+    fn pending_admin(env: Env) -> Option<Address>;
     fn get_safety(env: Env, asset: Address) -> Option<Safety>;
+    /// Batch form of `get_safety`, one entry per input asset in order. The
+    /// registry rejects a batch over its size bound; the call then fails
+    /// (use the client's `try_` variant to observe it).
+    fn get_safety_many(env: Env, assets: Vec<Address>) -> Vec<Option<Safety>>;
     /// The contract's interface version, bumped on every ABI change
     /// ([docs/contract-interface.md](../../docs/contract-interface.md)). A
     /// consumer or drift script can call this to learn what the contract is
     /// instead of inferring it from a wasm hash.
     fn version(env: Env) -> u32;
     fn is_safe(env: Env, asset: Address, max_severity: u32, max_age_secs: u64) -> bool;
+    /// Mask-based gate: `false` unless attested, fresh, and carrying none of
+    /// the bits in `forbidden_mask`.
+    fn is_safe_masked(env: Env, asset: Address, forbidden_mask: u32, max_age_secs: u64) -> bool;
+    /// The attestation written by one specific `attestor` for `asset`.
+    fn get_attestation(env: Env, attestor: Address, asset: Address) -> Option<Safety>;
+    /// Quorum across a consumer-chosen attestor set, at most [`MAX_ATTESTORS`].
+    fn quorum(
+        env: Env,
+        asset: Address,
+        attestors: Vec<Address>,
+        threshold: u32,
+        max_age_secs: u64,
+    ) -> Quorum;
+    /// Severity-ceiling gate over a quorum with conservative aggregation.
+    fn is_safe_quorum(
+        env: Env,
+        asset: Address,
+        attestors: Vec<Address>,
+        threshold: u32,
+        max_severity: u32,
+        max_age_secs: u64,
+    ) -> bool;
 }
 
 // ---------------------------------------------------------------------------
