@@ -84,7 +84,7 @@ func (c CapabilityCheck) Run(_ context.Context, s *Subject) (Finding, error) {
 	assetLedger := s.statLedger()
 	f.Evidence = append(f.Evidence, Evidence{
 		Source:         "horizon",
-		URL:            horizonAssetURL(s.Asset),
+		URL:            horizonAssetURL(s.Asset, s.HorizonBaseURL),
 		Claim:          "issuer flags: " + flagSummary(flags),
 		RetrievedAt:    NewCanonicalTime(s.StatFetchedAt),
 		LatestLedger:   assetLedger,
@@ -99,7 +99,7 @@ func (c CapabilityCheck) Run(_ context.Context, s *Subject) (Finding, error) {
 		acctLedger := s.issuerLedger()
 		f.Evidence = append(f.Evidence, Evidence{
 			Source:         "horizon/account",
-			URL:            horizonAccountURL(s.Asset.Issuer),
+			URL:            horizonAccountURL(s.Asset.Issuer, s.HorizonBaseURL),
 			Claim:          "issuer account flags: " + flagSummary(s.Issuer.Flags),
 			RetrievedAt:    NewCanonicalTime(s.IssuerFetchedAt),
 			LatestLedger:   acctLedger,

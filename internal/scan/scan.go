@@ -309,6 +309,18 @@ func NewWithOptions(opts Options) *Scanner {
 	}
 }
 
+// NewWithBaseURLs returns a Scanner wired to the given Horizon base URLs,
+// overriding the default from ASSAY_HORIZON_URL. The URLs are tried in order
+// with failover support (issue #397). If baseURLs is empty, the public
+// default is used.
+func NewWithBaseURLs(baseURLs []string) *Scanner {
+	sc := NewWithOptions(DefaultOptions())
+	if len(baseURLs) > 0 {
+		sc.Horizon = horizon.NewWithBaseURLs(baseURLs)
+	}
+	return sc
+}
+
 // expertOptions maps a Scanner's cache policy onto the StellarExpert client's.
 func expertOptions(opts Options) stellarexpert.Options {
 	o := stellarexpert.DefaultOptions()
@@ -375,7 +387,9 @@ func (s *Scanner) Subject(ctx context.Context, a mechanics.Asset) (*mechanics.Su
 	if err != nil {
 		return nil, err
 	}
-	sub := &mechanics.Subject{Asset: a, ScannedAt: s.now(), Network: network}
+	sub := &mechanics.Subject{Asset: a, ScannedAt: s.now(), Network: network,
+		HorizonBaseURL: s.Horizon.BaseURL,
+	}
 	timeout := s.fetchTimeout()
 
 	statCtx, cancelStat := context.WithTimeout(ctx, timeout)

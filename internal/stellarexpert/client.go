@@ -472,7 +472,13 @@ func (c *Client) get(ctx context.Context, target string, out any) (bool, error) 
 		if resp.StatusCode == http.StatusTooManyRequests {
 			retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"))
 			if attempt == opts.Attempts-1 {
-				return false, fmt.Errorf("stellarexpert: get %s: status %d", target, resp.StatusCode)
+				// Record the Retry-After hint in the error so callers can
+				// respect it (e.g., for evidence or retry budgeting).
+				errMsg := fmt.Sprintf("stellarexpert: get %s: status %d", target, resp.StatusCode)
+				if retryAfter > 0 {
+					errMsg += fmt.Sprintf(" (Retry-After: %v)", retryAfter)
+				}
+				return false, fmt.Errorf("%s", errMsg)
 			}
 			t := opts.Backoff(attempt, retryAfter)
 			if !wait(ctx, t) {

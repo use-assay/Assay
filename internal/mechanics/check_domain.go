@@ -80,7 +80,7 @@ func (c DomainCheck) Run(_ context.Context, s *Subject) (Finding, error) {
 		acctLedger := s.issuerLedger()
 		f.Evidence = append(f.Evidence, Evidence{
 			Source:         "horizon",
-			URL:            horizonAccountURL(s.Asset.Issuer),
+			URL:            horizonAccountURL(s.Asset.Issuer, s.HorizonBaseURL),
 			Claim:          fmt.Sprintf("home_domain %q", domain),
 			RetrievedAt:    NewCanonicalTime(s.IssuerFetchedAt),
 			LatestLedger:   acctLedger,

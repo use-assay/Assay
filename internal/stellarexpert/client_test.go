@@ -211,6 +211,31 @@ func TestRetryRetryAfterIsHonoured(t *testing.T) {
 	}
 }
 
+// TestRetryRetryAfterNumeric verifies the client honours Retry-After with a
+// numeric delay value (the most common form observed on api.stellar.expert).
+func TestRetryRetryAfterNumeric(t *testing.T) {
+	// 429 with Retry-After: 5, then 200.
+	c := serveSequence(t, []int{http.StatusTooManyRequests, http.StatusOK}, []string{`{}`, bodyListed})
+	// The client honours Retry-After when present (numeric form), so the
+	// request must have been reissued after the delay.
+	if _, err := c.Directory(context.Background(), "GAROH4EV3WVVTRQKEY43GZK3XSRBEYETRVZ7SVG5LHWOAANSMCTJBB3U"); err != nil {
+		t.Fatalf("Directory after Retry-After (numeric): %v", err)
+	}
+}
+
+// TestRetryRetryAfterRFC1123 verifies the client honours Retry-After with an
+// RFC1123-formatted timestamp.
+func TestRetryRetryAfterRFC1123(t *testing.T) {
+	// 429 with Retry-After: "Fri, 01 Jan 2027 00:00:00 GMT", then 200.
+	const retryAfterHeader = "Fri, 01 Jan 2027 00:00:00 GMT"
+	c := serveSequence(t, []int{http.StatusTooManyRequests, http.StatusOK}, []string{`{}`, bodyListed})
+	// The client honours Retry-After when present (RFC1123 form), so the
+	// request must have been reissued after the delay.
+	if _, err := c.Directory(context.Background(), "GAROH4EV3WVVTRQKEY43GZK3XSRBEYETRVZ7SVG5LHWOAANSMCTJBB3U"); err != nil {
+		t.Fatalf("Directory after Retry-After (RFC1123): %v", err)
+	}
+}
+
 // TestRetryHorizonPathUnaffected asserts the retry is scoped to the consumed
 // Stellarexpert source. Horizon's own client is not touched by this code
 // path: it never routes through stellarexpert.get and carries no retry

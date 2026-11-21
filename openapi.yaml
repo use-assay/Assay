@@ -738,3 +738,15 @@ components:
           additionalProperties:
             type: integer
           description: Count of scans per upstream source that failed to answer.
+        source_latency_bucket_counts:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: integer
+          description: >-
+            Counts, per source and per latency bucket, of how many fetches fell
+            within each fixed-duration bucket. Bucket edges (seconds):
+            0.1, 0.5, 1, 2, 5, 10, 30. A fetch lasting exactly
+            BucketEdges[i] seconds is counted in bucket i. Fetches longer
+            than the longest bucket edge are counted in the last bucket.

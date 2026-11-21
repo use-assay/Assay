@@ -72,6 +72,18 @@ func defaultDeps() commandDeps {
 	}
 }
 
+// horizonURL returns the Horizon base URL to use, preferring the flag value
+// over the environment variable, falling back to the public default.
+func horizonURLFromEnvAndFlag(flagValue string) string {
+	if flagValue != "" {
+		return flagValue
+	}
+	if v := os.Getenv("ASSAY_HORIZON_URL"); v != "" {
+		return v
+	}
+	return ""
+}
+
 func usage(w io.Writer) {
 	_, _ = fmt.Fprint(w, `usage:
   assay scan CODE-ISSUER          classify one asset and print the report as JSON
@@ -166,6 +178,8 @@ func runWith(args []string, d commandDeps) error {
 func runScan(args []string, d commandDeps) error {
 	fs := flag.NewFlagSet("scan", flag.ContinueOnError)
 	assetLists := assetListFlags(fs)
+	horizonURL := fs.String("horizon", "",
+		"Horizon base URL to use for scanning (overrides ASSAY_HORIZON_URL)")
 	recordDir := fs.String("record", "",
 		"save every upstream response into DIR for later -replay")
 	replayDir := fs.String("replay", "",
@@ -183,6 +197,14 @@ func runScan(args []string, d commandDeps) error {
 	if *recordDir != "" && *replayDir != "" {
 		return fmt.Errorf("-record and -replay are mutually exclusive")
 	}
+
+	// Resolve the Horizon URL: flag takes precedence, then environment variable.
+	hz := *horizonURL
+	if hz == "" {
+		hz = os.Getenv("ASSAY_HORIZON_URL")
+	}
+	// Set the env var so that scan.New() picks it up.
+	os.Setenv("ASSAY_HORIZON_URL", hz)
 
 	scanFn, finish, err := scanFuncForRecording(assetLists(), d, *recordDir, *replayDir)
 	if err != nil {
@@ -328,6 +350,8 @@ func (l *listFlag) Set(v string) error {
 func runAttestation(args []string, d commandDeps) error {
 	fs := flag.NewFlagSet("attestation", flag.ContinueOnError)
 	assetLists := assetListFlags(fs)
+	horizonFlag := fs.String("horizon", "",
+		"Horizon base URL to use for scanning (overrides ASSAY_HORIZON_URL)")
 	preimage := fs.Bool("preimage", false, "include the canonical bytes evidence_hash commits to")
 	raw := fs.Bool("raw", false, "print only the attest() arguments, tab-separated, for scripting")
 	preimageVersion := fs.String("preimage-version", "",
@@ -352,6 +376,14 @@ func runAttestation(args []string, d commandDeps) error {
 	if err != nil {
 		return fmt.Errorf("attestation: %w", err)
 	}
+
+	// Resolve the Horizon URL: flag takes precedence, then environment variable.
+	hz := *horizonFlag
+	if hz == "" {
+		hz = os.Getenv("ASSAY_HORIZON_URL")
+	}
+	// Set the env var so that scan.New() picks it up.
+	os.Setenv("ASSAY_HORIZON_URL", hz)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -546,12 +578,22 @@ type historyEntry struct {
 func runServe(args []string, log *slog.Logger) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	assetLists := assetListFlags(fs)
+	horizonFlag := fs.String("horizon", "",
+		"Horizon base URL to use for scanning (overrides ASSAY_HORIZON_URL)")
 	addr := fs.String("addr", ":8080", "listen address")
 	historyPath := fs.String("history", "",
 		"path to the observation history log (JSON Lines); empty keeps history in memory only")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
+
+	// Resolve the Horizon URL: flag takes precedence, then environment variable.
+	hz := *horizonFlag
+	if hz == "" {
+		hz = os.Getenv("ASSAY_HORIZON_URL")
+	}
+	// Set the env var so that newScanner() / scan.New() picks it up.
+	os.Setenv("ASSAY_HORIZON_URL", hz)
 
 	// The server is where a list configuration matters most: every scan it
 	// serves consults the same configured lists, attributed the same way, and
