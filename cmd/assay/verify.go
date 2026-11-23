@@ -73,7 +73,7 @@ type OnChainSafety struct {
 
 // registryReader reads the on-chain attestation for one asset. It is an
 // interface boundary rather than a concrete call so the outcome table test can
-// stub the chain; the production implementation is stellarRegistryReader.
+// stub the chain; the production implementation is newRegistryReader.
 type registryReader func(asset mechanics.Asset) (*OnChainSafety, error)
 
 // verifyScanFunc is the re-scan used by verify. It also returns the Subject the
@@ -274,14 +274,6 @@ func newRegistryReader(rpcURL, contract, network string) registryReader {
 			AttestedAt:   int64(s.AttestedAt),
 		}, nil
 	}
-}
-
-// stellarRegistryReader is the default production registryReader using env/default coordinates.
-func stellarRegistryReader(asset mechanics.Asset) (*OnChainSafety, error) {
-	contract := envOr("ASSAY_CONTRACT_ID", registry.DefaultContractID)
-	network := envOr("ASSAY_NETWORK", "testnet")
-	rpcURL := envOr("ASSAY_RPC_URL", registry.DefaultRPCURL)
-	return newRegistryReader(rpcURL, contract, network)(asset)
 }
 
 // differentialResult re-reads the issuer's flags through Soroban RPC and

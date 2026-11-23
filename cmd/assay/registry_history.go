@@ -319,7 +319,7 @@ func runRegistryHistory(args []string, d commandDeps) error {
 			return fmt.Errorf("registry-history: %w", err)
 		}
 		if sacAddr, err = sac.Address(asset.Code, asset.Issuer, sac.Passphrase(*network)); err != nil {
-			return err
+			return fmt.Errorf("registry-history: %w", err)
 		}
 	}
 
