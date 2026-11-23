@@ -74,11 +74,11 @@ test-reproducibility: ## Test the reproducibility script offline against fixture
 
 # test-attest-run exercises scripts/attest-run.sh (the run record `make attest`
 # writes) against stubbed assay and stellar binaries. No network, no key.
-test-attest-run:
+test-attest-run: ## Verify the attestation runner
 	bash ./scripts/test-attest-run.sh
 
 # test-stellar-cli-version exercises the Makefile preflight with a stub CLI.
-test-stellar-cli-version:
+test-stellar-cli-version: ## Verify Stellar CLI version checks
 	bash ./scripts/test-stellar-cli-version.sh
 
 # test-preimage runs the independent Python encoder (written from
@@ -138,7 +138,7 @@ wasm-size: ## Check the contract wasm sizes against assay-contracts/wasm-size-ba
 	./scripts/check-wasm-size.sh
 
 # Fail before invoking a CLI version that may produce incompatible output or wasm.
-check-stellar-cli-version:
+check-stellar-cli-version: ## Check the pinned Stellar CLI version
 	@actual="$$(stellar --version 2>/dev/null || true)"; \
 	if ! printf '%s\n' "$$actual" | grep -Eq '(^|[^0-9])$(subst .,[.],$(STELLAR_CLI_VERSION))([^0-9]|$$)'; then \
 		[ -n "$$actual" ] || actual='not installed'; \
@@ -150,7 +150,7 @@ check-stellar-cli-version:
 # build-contract produces the deployable artifact. It goes through the stellar
 # CLI rather than cargo because the CLI also runs the wasm optimizer and checks
 # the exported interface; contract-build above is the plain compile.
-build-contract: check-stellar-cli-version
+build-contract: check-stellar-cli-version ## Build the attestation contract
 	stellar contract build --manifest-path $(CONTRACTS)/Cargo.toml \
 		--package assay-safety-registry --out-dir $(CONTRACTS)/out
 
@@ -165,7 +165,7 @@ build-contract: check-stellar-cli-version
 # UNVERIFIABLE and exits 2. That is the honest answer, not a failure of the
 # source. See docs/deployment.md ("Does the source still build what is
 # deployed?").
-verify-wasm:
+verify-wasm: ## Verify the attestation contract artifact
 	./scripts/verify-wasm-source.sh $(if $(SOURCE_REF),--source-ref "$(SOURCE_REF)",)
 
 deploy-testnet: build-contract ## Deploy the contract to testnet and print the new ID
@@ -180,7 +180,7 @@ deploy-testnet: build-contract ## Deploy the contract to testnet and print the n
 # it, a missing binary surfaces as a bare "command not found" mid-recipe, with
 # no hint of what to install; this fails fast and points at the install docs
 # instead (#457).
-check-stellar:
+check-stellar: ## Check whether Stellar CLI is installed
 	@command -v stellar >/dev/null 2>&1 || { \
 		echo "error: the 'stellar' CLI was not found on your PATH. Install it from https://developers.stellar.org/docs/build/smart-contracts/getting-started/setup and re-run 'make attest'." >&2; \
 		exit 1; \
@@ -193,26 +193,26 @@ check-stellar:
 # hand-written value reach the contract.
 # attest writes one run record per invocation under attest-runs/ (see
 # docs/attestation-writer.md, "The run record"), whatever the outcome.
-attest: check-stellar-cli-version build
+attest: check-stellar-cli-version build ## Submit an attestation on-chain
 	@ASSAY_BIN=./$(BINARY) NETWORK=$(NETWORK) CONTRACT_ID=$(CONTRACT_ID) SOURCE=$(SOURCE) \
 		bash ./scripts/attest-run.sh --asset '$(ASSET)'
 
 # reattest walks the attested corpus (scripts/attested-assets.txt) through
 # `make attest`'s runner. It is a manual, key-holder-run procedure; see
 # docs/reattestation.md. Undetermined scans are skipped, never attested.
-reattest: check-stellar-cli-version build
+reattest: check-stellar-cli-version build ## Refresh an on-chain attestation
 	@ASSAY_BIN=./$(BINARY) NETWORK=$(NETWORK) CONTRACT_ID=$(CONTRACT_ID) SOURCE=$(SOURCE) \
 		bash ./scripts/reattest-corpus.sh
 
-test-reattest-corpus:
+test-reattest-corpus: ## Test the reattestation corpus
 	bash ./scripts/test-reattest-corpus.sh
 
-test-multisig-admin-plan:
+test-multisig-admin-plan: ## Test the multisig administrator plan
 	bash ./scripts/test-multisig-admin-plan.sh
 
 # read calls get_safety against the deployed contract. It simulates rather than
 # submits, so reading an attestation costs nothing and needs no signature.
-read: check-stellar-cli-version
+read: check-stellar-cli-version ## Read an attestation from the contract
 	@test -n "$(ASSET)" || { echo 'usage: make read ASSET=CODE-ISSUER'; exit 2; }
 	@set -eu; \
 	sac=$$(stellar contract id asset --asset "$$(printf '%s' '$(ASSET)' | sed 's/-/:/')" --network $(NETWORK)); \

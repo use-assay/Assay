@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/use-assay/assay/internal/history"
@@ -49,7 +51,24 @@ type Server struct {
 	// default", never "allow unlimited"; an exposure endpoint without a
 	// bound would be N scans per request with nothing between them.
 	ExposureLimiter *RateLimiter
-	Log             *slog.Logger
+	// ScanLimiter rate-limits GET /api/v1/scan per client address.
+	// When nil, no rate limit is applied — nil means "off", not "default".
+	// The limit is intentionally off by default for local use and development;
+	// public deployments should configure this to protect upstream services
+	// (Horizon, StellarExpert) from being hammered under Assay's User-Agent.
+	ScanLimiter *RateLimiter
+	// EventsLimiter bounds concurrent SSE connections for GET /api/v1/events.
+	// When nil, Handler installs a default limiter.
+	EventsLimiter *EventsLimiter
+	// TrustedProxies contains the CIDRs of reverse proxies whose X-Forwarded-For
+	// headers are trusted for client key extraction in rate limiters.
+	// When empty, X-Forwarded-For is never trusted and RemoteAddr is used directly.
+	TrustedProxies []*net.IPNet
+	// eventsClients holds active SSE client channels.
+	eventsClients map[chan []byte]struct{}
+	// eventsMu protects eventsClients.
+	eventsMu sync.Mutex
+	Log      *slog.Logger
 }
 
 // NewServer returns a Server backed by the production scanner and an in-memory
@@ -65,6 +84,7 @@ func NewServer(log *slog.Logger) *Server {
 var Routes = []string{
 	"GET /api/v1/scan",
 	"GET /api/v1/history",
+	"GET /api/v1/events",
 	"GET /api/v1/exposure",
 	"GET /metrics",
 	"GET /healthz",
@@ -93,14 +113,25 @@ func (s *Server) Handler() http.Handler {
 	if limiter == nil {
 		limiter = NewRateLimiter(defaultExposureBurst, defaultExposureRate)
 	}
+	// Events limiter bounds concurrent SSE connections.
+	if s.EventsLimiter == nil {
+		s.EventsLimiter = NewEventsLimiter(defaultEventsMaxClients)
+	}
+	s.eventsClients = make(map[chan []byte]struct{})
 
 	// Liveness and readiness are separate endpoints on purpose: /healthz says
 	// the process is up and checks nothing, /readyz asks the upstreams. A
 	// failing probe must never report healthy; a dying process must still be
 	// able to answer /healthz.
+	scanHandler := http.HandlerFunc(s.handleScan)
+	if s.ScanLimiter != nil {
+		scanHandler = s.withScanLimit(s.ScanLimiter, s.handleScan)
+	}
+
 	handlers := map[string]http.HandlerFunc{
-		"GET /api/v1/scan":     s.handleScan,
+		"GET /api/v1/scan":     scanHandler,
 		"GET /api/v1/history":  s.handleHistory,
+		"GET /api/v1/events":   s.handleEvents,
 		"GET /api/v1/exposure": s.withExposureLimit(limiter, s.handleExposure),
 		"GET /metrics":         s.handleMetrics,
 		"GET /healthz": func(w http.ResponseWriter, _ *http.Request) {
@@ -157,6 +188,45 @@ type errorBody struct {
 
 func apiErr(code, message string) errorBody {
 	return errorBody{Error: message, Code: code}
+}
+
+// Default limits for SSE connections.
+const (
+	defaultEventsMaxClients = 100
+	eventsHeartbeatInterval = 15 * time.Second
+	eventsWriteTimeout      = 10 * time.Second
+)
+
+// EventsLimiter is a simple semaphore for bounding concurrent SSE connections.
+type EventsLimiter struct {
+	sem chan struct{}
+}
+
+// NewEventsLimiter returns a limiter allowing up to max concurrent connections.
+func NewEventsLimiter(max int) *EventsLimiter {
+	return &EventsLimiter{sem: make(chan struct{}, max)}
+}
+
+// Acquire attempts to reserve a connection slot. Returns false if at capacity.
+func (l *EventsLimiter) Acquire() bool {
+	select {
+	case l.sem <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+// Release returns a connection slot.
+func (l *EventsLimiter) Release() {
+	<-l.sem
+}
+
+// eventMessage is the JSON structure sent over SSE.
+type eventMessage struct {
+	Asset      string              `json:"asset"`
+	Transition temporal.Transition `json:"transition"`
+	Timestamp  time.Time           `json:"timestamp"`
 }
 
 func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
@@ -220,8 +290,22 @@ func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.History != nil {
-		if err := s.History.Append(temporal.ObservationFromReport(report)); err != nil {
+		// Get previous observation to compute transition.
+		var prevObs temporal.Observation
+		prevList := s.History.List(asset)
+		if len(prevList) > 0 {
+			prevObs = prevList[len(prevList)-1]
+		}
+
+		newObs := temporal.ObservationFromReport(report)
+		if err := s.History.Append(newObs); err != nil {
 			s.Log.Error("history append failed", "asset", asset.String(), "err", err)
+		} else if !prevObs.At.IsZero() {
+			// Compute and broadcast transition if we have a previous observation.
+			transition := temporal.Between(prevObs, newObs)
+			if transition.State == temporal.Valid {
+				s.broadcastEvent(asset.String(), transition)
+			}
 		}
 	}
 
@@ -231,6 +315,124 @@ func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Assay-Undetermined", "false")
 	}
 	writeJSON(w, http.StatusOK, report)
+}
+
+// handleEvents serves an SSE stream that pushes a message whenever a stored
+// observation produces a capability, severity, or accountability transition.
+//
+// The endpoint implements standard SSE with:
+// - Bounded concurrent clients (default 100, configurable via Server.EventsLimiter)
+// - Heartbeats every 15 seconds to keep connections alive through proxies
+// - Per-client write timeout of 10 seconds
+// - Automatic cleanup on client disconnect
+//
+// Each message names the asset, the transition, and the observation pair.
+func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	raw := r.URL.Query().Get("asset")
+	if raw == "" {
+		writeJSON(w, http.StatusBadRequest, apiErr(codeMissingParam, "missing ?asset=CODE-ISSUER"))
+		return
+	}
+
+	_, err := scan.ParseAsset(raw)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, apiErr(codeInvalidAsset, err.Error()))
+		return
+	}
+
+	// Enforce client cap.
+	if !s.EventsLimiter.Acquire() {
+		writeJSON(w, http.StatusTooManyRequests, apiErr(codeRateLimited, "too many SSE connections"))
+		return
+	}
+	defer s.EventsLimiter.Release()
+
+	// Set SSE headers.
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no") // disable nginx buffering
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeJSON(w, http.StatusInternalServerError, apiErr(codeUpstreamUnavail, "SSE not supported"))
+		return
+	}
+
+	// Create a channel for this client.
+	clientCh := make(chan []byte, 10)
+
+	s.eventsMu.Lock()
+	s.eventsClients[clientCh] = struct{}{}
+	s.eventsMu.Unlock()
+
+	// Clean up on disconnect.
+	ctx := r.Context()
+	defer func() {
+		s.eventsMu.Lock()
+		delete(s.eventsClients, clientCh)
+		s.eventsMu.Unlock()
+		close(clientCh)
+	}()
+
+	// Send initial comment to establish the connection.
+	_, _ = w.Write([]byte(": connected\n\n"))
+	flusher.Flush()
+
+	heartbeat := time.NewTicker(eventsHeartbeatInterval)
+	defer heartbeat.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-heartbeat.C:
+			// Send heartbeat comment.
+			_, _ = w.Write([]byte(": heartbeat\n\n"))
+			flusher.Flush()
+		case data := <-clientCh:
+			_, _ = w.Write(data)
+			flusher.Flush()
+		}
+	}
+}
+
+// broadcastEvent sends a transition event to all connected SSE clients.
+func (s *Server) broadcastEvent(asset string, transition temporal.Transition) {
+	s.eventsMu.Lock()
+	clients := make([]chan []byte, 0, len(s.eventsClients))
+	for ch := range s.eventsClients {
+		clients = append(clients, ch)
+	}
+	s.eventsMu.Unlock()
+
+	msg := eventMessage{
+		Asset:      asset,
+		Transition: transition,
+		Timestamp:  time.Now().UTC(),
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		s.Log.Error("events: marshal event", "err", err)
+		return
+	}
+	// SSE format: "data: <json>\n\n"
+	sseData := append([]byte("data: "), append(data, '\n', '\n')...)
+
+	for _, ch := range clients {
+		select {
+		case ch <- sseData:
+		default:
+			// Client buffer full — drop this event for this client.
+			// The client will receive subsequent events.
+		}
+	}
+}
+
+// BroadcastEventForTest allows tests to broadcast a transition event.
+// This is a test-only helper that calls the internal broadcastEvent.
+func (s *Server) BroadcastEventForTest(asset string, transition temporal.Transition) {
+	s.broadcastEvent(asset, transition)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

@@ -27,6 +27,52 @@ func loadDisagreement(t *testing.T) *mechanics.Subject {
 	return loadSubject(t, "synthetic-flag-disagreement")
 }
 
+func TestImpossibleClawbackCombinationIsUndetermined(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		dir  string
+		want string
+	}{
+		{"asset record", "synthetic-impossible-asset-record", "asset record"},
+		{"account record", "synthetic-impossible-account-record", "issuer account record"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := loadSubject(t, tc.dir)
+			f, err := mechanics.CapabilityCheck{}.Run(context.Background(), s)
+			if err != nil {
+				t.Fatalf("CapabilityCheck.Run: %v", err)
+			}
+			if !f.Undetermined {
+				t.Fatal("protocol-impossible clawback combination must make the finding undetermined")
+			}
+			if f.Severity != mechanics.Unevaluated {
+				t.Fatalf("severity = %v, want unevaluated", f.Severity)
+			}
+			if !strings.Contains(f.Reasoning, "Impossible issuer flag combination") ||
+				!strings.Contains(f.Reasoning, tc.want) ||
+				!strings.Contains(f.Reasoning, "CAP-0035") {
+				t.Fatalf("reasoning does not name the impossible combination or CAP-0035: %q", f.Reasoning)
+			}
+			if len(f.Evidence) < 1 {
+				t.Fatal("source fault must carry evidence")
+			}
+			seenAssetURL := false
+			seenAccountURL := false
+			for _, e := range f.Evidence {
+				if strings.Contains(e.URL, "/assets?") {
+					seenAssetURL = true
+				}
+				if strings.Contains(e.URL, "/accounts/") {
+					seenAccountURL = true
+				}
+			}
+			if !seenAssetURL || !seenAccountURL {
+				t.Fatalf("impossible combination evidence must cite both Horizon URLs: %+v", f.Evidence)
+			}
+		})
+	}
+}
+
 // capFinding isolates the capability finding from a report.
 func capFinding(t *testing.T, rep *mechanics.Report) mechanics.Finding {
 	t.Helper()

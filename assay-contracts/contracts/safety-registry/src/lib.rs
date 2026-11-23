@@ -95,6 +95,13 @@ pub const POLICY_MASK_FREEZE_INCLUSIVE: u32 = MECH_AUTH_REVOCABLE | MECH_CLAWBAC
 /// [`Self::attest`] and [`Self::attest_many`], so a verifier can tell which
 /// preimage encoding produced `evidence_hash` (#284).
 pub const INTERFACE_VERSION: u32 = 3;
+/// [`Self::cancel_admin_transfer`] and the [`AdminTransferCancelled`] event.
+/// Version 4 adds [`Quorum::InvalidArguments`], so a miscalibrated
+/// [`SafetyRegistry::quorum`] call is no longer reported as
+/// [`Quorum::Unavailable`] (an outage). A `match` on [`Quorum`] that was
+/// exhaustive under version 3 no longer compiles, and a consumer decoding the
+/// enum must learn the new case.
+pub const INTERFACE_VERSION: u32 = 4;
 
 /// Event emitted on every successful `attest` write. Rejected attestations
 /// (`InvalidSeverity`, `InconsistentAttestation`, unauthorized caller) publish
@@ -163,6 +170,13 @@ pub enum Quorum {
     /// Contested: at least `threshold` attestors responded within `max_age_secs`, but they
     /// disagree on severity or flags. The payload is the count of responding attestors.
     Contested(u32),
+    /// InvalidArguments: the call itself was malformed, so no attestor was consulted.
+    /// Returned when `threshold == 0`, when `threshold` exceeds the number of distinct
+    /// attestors, or when the distinct attestor set is larger than [`MAX_ATTESTORS`].
+    /// Unlike `Unavailable` this is not a liveness problem: waiting will not help and
+    /// the caller must fix its own call. It is appended last so the existing variants
+    /// keep their encoding.
+    InvalidArguments,
 }
 
 /// Event emitted when the current admin withdraws a pending admin transfer.
@@ -855,6 +869,55 @@ impl SafetyRegistry {
         Ok(())
     }
 
+    /// Withdraws a batch of attestations in a single transaction, restoring the
+    /// never-attested state for each asset.
+    ///
+    /// It is admin-only, capped at [`MAX_BATCH_SIZE`], and enforces all-or-nothing
+    /// execution: if any asset in `assets` has no attestation, the call returns
+    /// [`Error::NotAttested`] and nothing is removed.
+    ///
+    /// Empty batches succeed and do nothing. For non-empty batches, one [`Revoked`]
+    /// event is published per asset, and the contract instance TTL is extended.
+    pub fn revoke_many(env: Env, assets: Vec<Address>) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        if assets.len() > MAX_BATCH_SIZE {
+            return Err(Error::BatchTooLarge);
+        }
+
+        // Phase one: validate every element before anything is removed.
+        // If any asset is missing an attestation, return NotAttested and remove nothing.
+        for asset in assets.iter() {
+            let key = DataKey::Safety(asset.clone());
+            if !env.storage().persistent().has(&key) {
+                return Err(Error::NotAttested);
+            }
+        }
+
+        if assets.is_empty() {
+            return Ok(());
+        }
+
+        // Phase two: remove all attestations and publish one Revoked event per asset.
+        let revoked_at = env.ledger().timestamp();
+        for asset in assets.iter() {
+            let key = DataKey::Safety(asset.clone());
+            env.storage().persistent().remove(&key);
+            Revoked {
+                asset: asset.clone(),
+                revoked_at,
+            }
+            .publish(&env);
+        }
+        extend_instance(&env);
+        Ok(())
+    }
+
     /// Reads the attestation for `asset`.
     ///
     /// Returns `None` when the asset has never been attested. That case is
@@ -1026,7 +1089,8 @@ impl SafetyRegistry {
     ///
     /// Attestors are deduplicated before evaluation.
     /// Returns:
-    /// - `Quorum::Unavailable(responding_count)` if responding_count < threshold, or threshold == 0, or threshold > deduplicated_attestors.len(), or deduplicated_attestors.len() > MAX_ATTESTORS
+    /// - `Quorum::InvalidArguments` if threshold == 0, or threshold > deduplicated_attestors.len(), or deduplicated_attestors.len() > MAX_ATTESTORS (no attestor is read)
+    /// - `Quorum::Unavailable(responding_count)` if the arguments are valid but responding_count < threshold (including zero responders)
     /// - `Quorum::Contested(responding_count)` if responding_count >= threshold, but responding attestors differ in severity or flags
     /// - `Quorum::Met(Safety)` if responding_count >= threshold and responding attestors agree on severity and flags
     pub fn quorum(
@@ -1053,7 +1117,7 @@ impl SafetyRegistry {
 
         let deduped_len = deduped.len();
         if threshold == 0 || threshold > deduped_len || deduped_len > MAX_ATTESTORS {
-            return Quorum::Unavailable(0);
+            return Quorum::InvalidArguments;
         }
 
         let now = env.ledger().timestamp();

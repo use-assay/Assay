@@ -54,6 +54,43 @@ func (c CapabilityCheck) Run(_ context.Context, s *Subject) (Finding, error) {
 		return f, nil
 	}
 
+	assetImpossible := impossibleClawback(s.Stat.Flags)
+	accountImpossible := s.Issuer != nil && impossibleClawback(s.Issuer.Flags)
+	if assetImpossible || accountImpossible {
+		f.Severity = Unevaluated
+		f.Undetermined = true
+		f.Evidence = append(f.Evidence, Evidence{
+			Source:         "horizon",
+			URL:            horizonAssetURL(s.Asset),
+			Claim:          "issuer flags: " + flagSummary(s.Stat.Flags),
+			RetrievedAt:    NewCanonicalTime(s.StatFetchedAt),
+			LatestLedger:   s.statLedger(),
+			LedgerSequence: s.statLedger(),
+		})
+		if s.Issuer != nil {
+			f.Evidence = append(f.Evidence, Evidence{
+				Source:         "horizon/account",
+				URL:            horizonAccountURL(s.Asset.Issuer),
+				Claim:          "issuer account flags: " + flagSummary(s.Issuer.Flags),
+				RetrievedAt:    NewCanonicalTime(s.IssuerFetchedAt),
+				LatestLedger:   s.issuerLedger(),
+				LedgerSequence: s.issuerLedger(),
+			})
+		}
+
+		copies := make([]string, 0, 2)
+		if assetImpossible {
+			copies = append(copies, "the asset record has auth_clawback_enabled=true without auth_revocable")
+		}
+		if accountImpossible {
+			copies = append(copies, "the issuer account record has auth_clawback_enabled=true without auth_revocable")
+		}
+		f.Reasoning = "Impossible issuer flag combination: " + joinPowers(copies) +
+			". Under CAP-0035, auth_clawback_enabled requires auth_revocable. " +
+			"Each Horizon copy is cited below. This source fault makes issuer capability undetermined."
+		return f, nil
+	}
+
 	// Horizon publishes the issuer's authorization flags twice: on the asset
 	// record and on the issuer account. Reading one of two available copies and
 	// never comparing them is an unforced gap in a tool whose entire output is a
@@ -129,6 +166,10 @@ func (c CapabilityCheck) Run(_ context.Context, s *Subject) (Finding, error) {
 	f.Reasoning = b.String()
 
 	return f, nil
+}
+
+func impossibleClawback(flags horizon.Flags) bool {
+	return flags.AuthClawbackEnabled && !flags.AuthRevocable
 }
 
 // reconcileFlags resolves the two copies of the issuer's authorization flags

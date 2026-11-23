@@ -96,7 +96,12 @@ func (s *Server) withObservability(next http.Handler) http.Handler {
 			id = hex.EncodeToString(b[:])
 		}
 
-		logger := s.Log.With(requestIDLogKey, id)
+		clientKey := s.ClientKey(r)
+		baseLogger := s.Log
+		if baseLogger == nil {
+			baseLogger = slog.Default()
+		}
+		logger := baseLogger.With(requestIDLogKey, id, "client_key", clientKey)
 		ctx := r.Context()
 		ctx = context.WithValue(ctx, requestIDKey{}, id)
 		ctx = context.WithValue(ctx, loggerKey{}, logger)

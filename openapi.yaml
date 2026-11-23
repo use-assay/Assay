@@ -84,15 +84,73 @@ paths:
           schema:
             type: string
           description: Asset code and issuer (e.g. USDC-GA5Z...)
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 256
+          description: >-
+            Maximum observations to return (default 100, maximum 256). Values
+            outside the range are rejected with 400 rather than clamped, so a
+            caller's cursor arithmetic stays correct. A page can exceed this
+            when observations share its oldest timestamp, because a time
+            cursor cannot resume between them.
+        - name: before
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: >-
+            Exclusive time cursor. Returns retained observations strictly older
+            than this RFC 3339 timestamp, so a caller pages backwards from
+            `next_before`.
       responses:
         '200':
-          description: History in time order, oldest first.
+          description: One page of history in time order, oldest first.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/History'
         '400':
           description: Missing or invalid asset, or the network's native asset.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/events:
+    get:
+      summary: Server-sent events stream for capability, severity, and accountability transitions
+      description: >-
+        Opens a long-lived SSE connection that pushes a message whenever a stored
+        observation produces a transition. The stream includes heartbeats every
+        15 seconds to keep the connection alive through proxies. Connections are
+        capped at 100 concurrent clients per server instance.
+      responses:
+        '200':
+          description: A stream of transition events in SSE format.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: Each event is a JSON object with asset, transition, and timestamp fields.
+        '400':
+          description: Missing or invalid asset parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too many concurrent SSE connections. Retry-After header gives seconds to wait.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: SSE not supported by the server infrastructure.
           content:
             application/json:
               schema:
@@ -554,8 +612,37 @@ components:
         attribution:
           type: string
           enum: [none, capability, reputation, both]
+        deescalation:
+          $ref: '#/components/schemas/Deescalation'
         accountability:
           $ref: '#/components/schemas/AccountabilityMovement'
+    Deescalation:
+      type: object
+      description: >-
+        A typed severity decrease, present exactly when the final severity fell
+        between two valid observations. It names the evidence source(s) whose
+        withdrawn claim produced the fall, so a reversal is observable without
+        diffing evidence by hand.
+      required: [from, to, attribution, sources]
+      properties:
+        from:
+          $ref: '#/components/schemas/Severity'
+        to:
+          $ref: '#/components/schemas/Severity'
+        attribution:
+          type: string
+          enum: [none, capability, reputation, both]
+          description: The axis that produced the fall.
+        sources:
+          type: array
+          description: >-
+            Evidence sources that withdrew an escalation-causing claim, sorted
+            and deduplicated. Empty when severity fell without a source's
+            evidence recording the withdrawal.
+          items:
+            type: string
+        reason:
+          type: string
     AccountabilityMovement:
       type: object
       description: >-
@@ -580,7 +667,7 @@ components:
     History:
       type: object
       description: The body of GET /api/v1/history.
-      required: [asset, state, count, observations, transitions, retention]
+      required: [asset, state, count, observations, transitions, limit, retention, max_assets]
       properties:
         asset:
           $ref: '#/components/schemas/Asset'
@@ -595,22 +682,43 @@ components:
           description: Present when state is not valid.
         count:
           type: integer
+          description: Observations returned on this page, not in the whole history.
         observations:
           type: array
           items:
             $ref: '#/components/schemas/Observation'
         transitions:
           type: array
+          description: >-
+            Differences between consecutive observations, including the one
+            from the predecessor before this page, so a change at a page
+            boundary is still reported.
           items:
             $ref: '#/components/schemas/Transition'
+        limit:
+          type: integer
+          description: Page size actually applied.
+        next_before:
+          type: string
+          format: date-time
+          description: >-
+            Cursor for the next (older) page; send it back as `before`. Absent
+            on the page that reaches the oldest retained observation.
         latest_at:
           type: string
           format: date-time
+          description: The most recent observation overall, not only on this page.
         latest_age_secs:
           type: integer
         retention:
           type: integer
           description: The per-asset observation cap these results were read against.
+        max_assets:
+          type: integer
+          description: >-
+            The global cap on assets the store retains. Eviction is whole-asset
+            and least-recently-observed-first, so on a deployment at the cap a
+            `missing` state means "not retained", not "never observed".
     Exposure:
       type: object
       description: The body of GET /api/v1/exposure.

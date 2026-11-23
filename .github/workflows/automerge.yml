@@ -1,0 +1,64 @@
+name: Automerge
+
+# Approves CI for safe first-time-contributor PRs, then merges every PR that
+# meets all conditions and comments on the ones that do not. The logic is in
+# .github/scripts/automerge.js.
+#
+# Safety: this runs from the default branch with write permissions, so it must
+# never check out or execute PR code. The only checkout is of the default
+# branch; PR commits are fetched as refs and only diffed.
+#
+# Merges made with the default GITHUB_TOKEN do not trigger the push-to-main CI
+# run (a GitHub rule against workflow loops). To get that run, add a repo
+# secret AUTOMERGE_TOKEN (a fine-grained PAT or GitHub App token with
+# contents, pull requests, issues and actions write access).
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review, edited, labeled, unlabeled]
+  # Reviews on fork PRs get a read-only token, so reviews, resolved threads and
+  # new commits on main are picked up by the sweep instead.
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Log what would happen without approving, commenting or merging
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+  checks: read
+  statuses: read
+
+# One run at a time so two sweeps never race to comment or merge.
+concurrency:
+  group: automerge
+  cancel-in-progress: false
+
+jobs:
+  automerge:
+    name: Automerge
+    runs-on: ubuntu-latest
+    steps:
+      # actions/checkout v5.0.0, pinned: this job holds write permissions
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      # actions/github-script v8.0.0, pinned
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        env:
+          DRY_RUN: ${{ inputs.dry_run == true && 'true' || 'false' }}
+        with:
+          github-token: ${{ secrets.AUTOMERGE_TOKEN || github.token }}
+          script: |
+            const automerge = require('./.github/scripts/automerge.js');
+            await automerge({ github, context, core });

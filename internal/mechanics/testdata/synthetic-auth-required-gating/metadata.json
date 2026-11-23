@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "subject": "synthetic-auth-required-gating",
+  "why": "a synthetic fixture exercising auth_required as a gating mechanism: the issuer must approve each trustline before holders can receive the asset. Capability severity is low (auth_required alone). The domain check passes because the AQUA stellar.toml claims the asset with both code and issuer, so accountability is verified. This closes the coverage gap noted in docs/eval.md (#376).",
+  "files": [
+    {"file": "asset.json", "url": "https://horizon.stellar.org/assets?asset_code=AQUA&asset_issuer=GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA", "captured": "2026-08-10", "note": "synthetic payload derived from aqua-clear-verified with auth_required set to true (#376)"},
+    {"file": "account.json", "url": "https://horizon.stellar.org/accounts/GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA", "captured": "2026-08-10", "note": "synthetic payload derived from aqua-clear-verified with auth_required set to true (#376)"},
+    {"file": "stellar.toml", "url": "https://aqua.network/.well-known/stellar.toml", "captured": "2026-08-10", "note": "copied from aqua-clear-verified; the toml claims AQUA under the correct issuer, so reciprocal verification passes (#376)"},
+    {"file": "blocked.json", "url": "https://api.stellar.expert/explorer/directory/blocked-domains/aqua.network", "captured": "2026-08-10", "note": "copied from aqua-clear-verified (#376)"},
+    {"file": "directory.json", "url": "https://api.stellar.expert/explorer/directory/GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA", "captured": "2026-08-10", "note": "copied from aqua-clear-verified (#376)"}
+  ],
+  "expected": {
+    "state": "valid",
+    "base": "low",
+    "severity": "low",
+    "escalated": false,
+    "undetermined": false,
+    "accountability": "verified",
+    "checks": {
+      "capability": {"severity": "low", "mechanics": ["auth_required"]},
+      "mutability": {"severity": "clear"},
+      "sep1-domain": {"severity": "clear"},
+      "reputation": {"severity": "clear", "escalation": true}
+    }
+  }
+}

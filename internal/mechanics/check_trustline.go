@@ -76,11 +76,19 @@ func (c TrustlineCheck) Run(_ context.Context, s *Subject) (Finding, error) {
 	}
 
 	if s.HolderTrustline == nil {
-		f.Undetermined = true
 		f.Reasoning = fmt.Sprintf(
-			"Holder %s does not hold this asset: no trustline exists to inspect.",
-			s.Holder,
+			"Holder %s does not hold this asset: no trustline exists for %s-%s.",
+			s.Holder, s.Asset.Code, s.Asset.Issuer,
 		)
+		hLedger := s.holderLedger()
+		f.Evidence = append(f.Evidence, Evidence{
+			Source:         "horizon",
+			URL:            holderURL,
+			Claim:          fmt.Sprintf("no trustline for asset %s-%s", s.Asset.Code, s.Asset.Issuer),
+			RetrievedAt:    NewCanonicalTime(s.HolderFetchedAt),
+			LatestLedger:   hLedger,
+			LedgerSequence: hLedger,
+		})
 		return f, nil
 	}
 

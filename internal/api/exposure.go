@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"errors"
-	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -226,10 +225,7 @@ func (s *Server) exposureFor(ctx context.Context, account string, tl horizon.Tru
 // silently.
 func (s *Server) withExposureLimit(limiter *RateLimiter, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		key := r.RemoteAddr
-		if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-			key = host
-		}
+		key := s.ClientKey(r)
 		ok, retry := limiter.Allow(key)
 		if !ok {
 			secs := int64(retry / time.Second)
@@ -239,6 +235,30 @@ func (s *Server) withExposureLimit(limiter *RateLimiter, next http.HandlerFunc) 
 			w.Header().Set("Retry-After", strconv.FormatInt(secs, 10))
 			writeJSON(w, http.StatusTooManyRequests, apiErr(codeRateLimited,
 				"rate limit exceeded: exposure runs full scans per asset; retry in "+
+					strconv.FormatInt(secs, 10)+"s",
+			))
+			return
+		}
+		next(w, r)
+	}
+}
+
+// withScanLimit wraps the scan handler in the server's per-scan rate limit.
+// Each scan fans out to Horizon, the issuer's domain and StellarExpert; a
+// limit protects those upstreams from being hammered under Assay's
+// User-Agent from a single client. A refused caller is told when to retry.
+func (s *Server) withScanLimit(limiter *RateLimiter, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		key := s.ClientKey(r)
+		ok, retry := limiter.Allow(key)
+		if !ok {
+			secs := int64(retry / time.Second)
+			if secs < 1 {
+				secs = 1
+			}
+			w.Header().Set("Retry-After", strconv.FormatInt(secs, 10))
+			writeJSON(w, http.StatusTooManyRequests, apiErr(codeRateLimited,
+				"rate limit exceeded: scan fans out to upstream services; retry in "+
 					strconv.FormatInt(secs, 10)+"s",
 			))
 			return

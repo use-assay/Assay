@@ -65,8 +65,9 @@ they mean different things:
 | State | Condition | Gate result | What it means operationally |
 | --- | --- | --- | --- |
 | **Met** | At least M responding attestors, and the aggregation rule produces a result | Admit or refuse on that result | Normal |
-| **Unavailable** | Fewer than M responding | Refuse | A liveness problem: attestors are down, slow, or have stopped. Nothing is wrong with the claims. |
+| **Unavailable** | A valid call, with fewer than M responding | Refuse | A liveness problem: attestors are down, slow, or have stopped. Nothing is wrong with the claims. |
 | **Contested** | At least M responding, but they do not agree as the rule requires | Refuse | Something is wrong with a claim. An attestor is buggy, compromised, or running a different check set, or the issuer changed flags between two scans. It needs a human. |
+| **InvalidArguments** | The call itself is malformed: M is 0, M exceeds the distinct attestors, or there are more than `MAX_ATTESTORS` | Refuse | A consumer bug, not an outage. No attestor was read; waiting will not help, the caller must fix its call. |
 
 Both non-Met states fail closed. They must be distinguishable to an observer,
 because one needs waiting and the other needs investigation. A registry that
@@ -150,6 +151,7 @@ pub enum Quorum {
     Met(Safety),                             // aggregated, see below
     Unavailable(u32),                        // responding count, < threshold
     Contested(u32),                          // responding count, >= threshold
+    InvalidArguments,                        // malformed call: threshold == 0, threshold > distinct attestors, or more than MAX_ATTESTORS
 }
 ```
 
@@ -243,8 +245,8 @@ registry offers conservative max/union aggregation, and nothing else.**
 
 This is the second open question in this document, now closed. The comparison
 below is argued against concrete consumers — a vault that accepts several
-collateral assets in one call (the batch read in [#331]), and the example gate
-that admits a deposit only below a severity ceiling ([integrating.md]) — rather
+collateral assets in one call (the batch read in [#331](https://github.com/use-assay/Assay/issues/331)), and the example gate
+that admits a deposit only below a severity ceiling ([integrating.md](integrating.md)) — rather
 than in the abstract.
 
 ### Conservative max/union (offered)
@@ -256,7 +258,7 @@ observers.
 
 - **Admission risk:** low. Danger can be raised, never lowered, which is the
   same rule that already holds for severity inside one report
-  ([threat-model.md] #4). M compromised attestors cannot cause an admission as
+  ([threat-model.md](threat-model.md) #4). M compromised attestors cannot cause an admission as
   long as one honest attestor in the consumer's set is responding: the maximum
   wins. Forcing an admission requires M compromised attestors *and* every
   honest attestor to be non-responding within the window — a strictly stronger
@@ -286,7 +288,7 @@ any difference as Contested with no result.
 - **Consumer complexity:** higher. Consumers must understand agreement
   thresholds, distinguish Contested from Unavailable, and decide which
   attestor set to retry with — two rules instead of one double the surface a
-  consumer can misconfigure ([#330]).
+  consumer can misconfigure ([#330](https://github.com/use-assay/Assay/issues/330)).
 
 ### Why #153's consumer research does not change this
 

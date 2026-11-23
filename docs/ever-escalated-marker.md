@@ -17,7 +17,7 @@ sign-off on this design.
 
 Severity inside one report cannot go down: final severity is the maximum over
 all findings, and `Engine.Run` raises it to the base at the end
-([threat-model.md] #4). Across reports it can: if a source withdraws a listing,
+([threat-model.md](threat-model.md) #4). Across reports it can: if a source withdraws a listing,
 the next scan recomputes a lower final severity. `revoke` retracts a claim, and
 `attest` events plus the history API let an indexer reconstruct what an asset
 was, but **a consumer reading only the current attestation sees the lower level
@@ -106,7 +106,7 @@ strictly more informative record for the same storage class.
 
 The `attest` event already publishes the previous and current values, and the
 history API retains observations
-([threat-model.md] #4, third bullet). An indexer that replays events can
+([threat-model.md](threat-model.md) #4, third bullet). An indexer that replays events can
 reconstruct an asset's historical maximum.
 
 **ABI impact:** none. **Storage cost:** none.

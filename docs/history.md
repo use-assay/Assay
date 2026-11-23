@@ -50,9 +50,11 @@ this document does not claim otherwise.
     }
   ],
   "transitions": [],
+  "limit": 100,
   "latest_at": "2026-08-15T05:27:31Z",
   "latest_age_secs": 3542400,
-  "retention": 256
+  "retention": 256,
+  "max_assets": 512
 }
 ```
 
@@ -61,12 +63,15 @@ this document does not claim otherwise.
 | `asset` | the asset the history is for, echoed in `CODE`/`issuer` form |
 | `state` | `valid`, `unknown`, or `missing` — the completeness of the history, not of any request |
 | `reason` | plain-language explanation of a non-`valid` state; never omitted when the state is not `valid` |
-| `count` | number of observations returned |
-| `observations` | the recorded observations, oldest first, each with its own completeness |
-| `transitions` | the derived difference between each consecutive pair; empty for fewer than two observations |
-| `latest_at` | the most recent observation's time |
+| `count` | number of observations returned on this page, not in the whole history |
+| `observations` | this page's observations, oldest first, each with its own completeness |
+| `transitions` | the derived difference between each consecutive pair on the page, plus the one from the page's predecessor; empty when nothing precedes the oldest returned observation |
+| `limit` | the page size actually applied |
+| `next_before` | cursor for the next (older) page; absent on the page that reaches the oldest retained observation |
+| `latest_at` | the most recent observation **overall**, not only on this page |
 | `latest_age_secs` | its age in seconds, so a consumer can apply its own staleness policy |
 | `retention` | the per-asset cap these observations were read against |
+| `max_assets` | the global cap on assets the store retains (see [Bounds](#bounds-two-of-them)) |
 
 An observation carries `mechanics` (the full bitset, as a number), `base_severity`
 and `severity` (level names), and `undetermined` with `undetermined_checks`. The
@@ -121,6 +126,44 @@ This is the same failure that
 applied to a comparison. A history read must not silently drop the partial
 observation, because a shorter history that looks complete is worse than a
 marked one.
+
+### pagination — bounded pages, walked backwards
+
+`/api/v1/history` is paginated because the retained history is the response size
+the server hits first. Two query parameters control the page:
+
+| Parameter | Meaning |
+| --- | --- |
+| `limit` | page size, default **100**, maximum **256** (the per-asset retention cap) |
+| `before` | exclusive time cursor: only observations **strictly older** than this RFC 3339 timestamp are returned |
+
+A page is the latest `limit` observations not newer than `before`, so the first
+request needs only `asset` and each subsequent request sends the previous
+response's `next_before` back as `before`. The cursor is exclusive, which is what
+makes the walk terminate: the observation named by `next_before` is returned on
+the page just read and never again.
+
+- **A transition at a page boundary is still reported.** The transition *into*
+the first returned observation is derived against one predecessor from outside
+the page, so `transitions` can be one longer than a page of `n` observations has
+internal pairs. That predecessor is not returned as an observation, because
+`count` describes the page and an unrequested entry would be one the caller
+cannot page over; it is included when judging the page's `state`, because a
+change derived from it is part of this response.
+- **`latest_at` describes the history, not the page.** Walking backwards must
+not make an asset look progressively staler than its most recent observation.
+- **A page can be larger than `limit`.** Observations that share the page's
+oldest timestamp are returned together, because a time cursor cannot resume
+between them and splitting them would drop one from the walk. The page is
+bounded by the per-asset retention cap either way.
+- **An empty page is an end-of-history result, not an error** — `count: 0`,
+`state: "valid"`, and no `next_before`. Reaching the end of what is retained is
+not the same as having no history at all, which is `state: "missing"`.
+- **Invalid parameters are refused with `400`.** That covers a non-numeric or
+zero `limit`, a `limit` above 256, and a `before` that is not an RFC 3339
+timestamp. Unlike the exposure endpoint, the limit is **not clamped**: a caller
+walking a cursor has to know exactly how its request was interpreted, and a
+silently clamped page would make the cursor it computes wrong.
 
 ### stale — the age is reported, the policy is yours
 
@@ -208,6 +251,37 @@ Assay has scanned has accumulated.
 The response reports `retention` so a consumer that sees exactly that many
 observations can read the history as possibly truncated at the oldest end rather
 than as complete. Eviction is never silent: the cap is visible in every response.
+### Bounds: two of them
+
+**Retention is a count, not a time window, and there are two bounds.** The
+per-asset cap is `history.DefaultRetention` — **256 observations per asset** —
+and the global cap is `history.DefaultMaxAssets` — **512 assets**. When either is
+exceeded, the oldest is evicted first: the oldest *observation* of that asset, or
+the asset whose most recent observation is oldest.
+
+Both bounds are needed. A per-asset cap alone bounds nothing in aggregate: every
+distinct asset scanned through the public API adds up to 256 records, and the
+whole file is rewritten on every append, so an instance could be driven to an
+arbitrarily large file and O(n) write cost merely by scanning many assets. With
+both bounds the log can never exceed `512 × 256` records, whatever an outside
+caller scans, and the write cost of an append is bounded by that same number.
+
+The global bound evicts **whole assets, least-recently-observed-first**, rather
+than trimming every asset's history. The asset whose newest observation is oldest
+is the one a consumer is least likely to ask about, an asset that is still being
+scanned is never the one a burst of new assets drops, and no asset is ever left
+with a partial history that would read as complete. Ties are broken by asset key,
+so eviction cannot depend on map iteration order.
+
+The response reports `retention` and `max_assets` for exactly this reason: a
+consumer can see which caps the answers were read against and must read them
+rather than assuming completeness. A consumer that sees exactly `retention`
+observations on an asset should read the history as possibly truncated at the
+oldest end. One consequence is stated rather than hidden: **an evicted asset's
+history reads as `missing`**, the same as an asset that was never scanned. On a
+deployment that has reached `max_assets`, `missing` therefore means "not retained"
+as well as "never observed"; an asset that must stay pageable should not be left
+unscanned long enough to age out.
 
 Transitions are recomputed from retained observations on every request, so
 evicting an old observation can make an old transition unavailable. That is the
@@ -216,8 +290,6 @@ alongside each difference.
 
 ## What this does not do
 
-- **No scheduling.** Nothing scans on a timer; history grows when someone calls
-  `/api/v1/scan`.
 - **No backfill.** There is no history for scans that happened before the store
   existed, and no way to import one.
 - **No CLI surface change.** The `assay history` subcommand is a separate,
@@ -225,11 +297,34 @@ alongside each difference.
   endpoint. The issue that added the endpoint explicitly scoped the CLI out.
 - **No deletion API.** Retention is the only removal, and it is oldest-first.
 
+## Scheduled observation
+
+`assay serve` can now run scheduled scans of a configured asset list and append
+observations to history automatically:
+
+```sh
+assay serve -observe /path/to/assets.txt -observe-interval 6h
+```
+
+- `-observe FILE` — path to a text file with one `CODE-ISSUER` asset per line.
+  Empty lines and lines starting with `#` are ignored.
+- `-observe-interval DURATION` — interval between scans (default `6h`).
+
+Each scheduled scan uses the same scan path as `/api/v1/scan`, records an
+observation in the history store, and respects upstream rate limits. Observations
+from scheduled scans are marked as determined by the scan result (undetermined
+scans are recorded as such).
+
+The scheduler runs the first scan immediately on startup, then repeats at the
+configured interval. It stops cleanly when the server shuts down.
+
 ## Tests
 
 The endpoint's four required cases — empty history, a single observation,
 multiple observations with a transition, and an observation that is
-undetermined — are covered hermetically, with no network:
+undetermined — are covered hermetically, with no network, along with pagination
+(`TestHistoryPaginationWalksTheHistory`, including the page-boundary transition)
+and the global bound:
 
 ```sh
 go test ./internal/api/ -run History -v

@@ -194,3 +194,74 @@ func TestErrorBodyHasCode(t *testing.T) {
 		t.Error("error body missing code field; API contract requires a stable code")
 	}
 }
+
+// TestScanRateLimitOff pins the default: a nil ScanLimiter means no rate
+// limit is applied, so the handler is reachable without restriction.
+func TestScanRateLimitOff(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	srv := api.NewServer(log)
+	// ScanLimiter is nil by default — no limit installed.
+	h := srv.Handler()
+
+	for i := 0; i < 5; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/scan", nil)
+		req.RemoteAddr = "203.0.113.1:4000"
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code == http.StatusTooManyRequests {
+			t.Fatalf("request %d: got 429 with no limiter configured", i+1)
+		}
+	}
+}
+
+// TestScanRateLimited pins the per-client rate-limit criterion: a client that
+// exhausts its burst is refused with 429 and a Retry-After header, while a
+// different client's bucket remains untouched (#429).
+func TestScanRateLimited(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	srv := api.NewServer(log)
+	// Burst of 2 with a near-frozen refill so the third request from the same
+	// address is refused without sleeping.
+	srv.ScanLimiter = api.NewRateLimiter(2, 0.000001)
+	h := srv.Handler()
+
+	scan := func(remoteAddr string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/scan?asset=USDC-GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", nil)
+		req.RemoteAddr = remoteAddr
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// First two requests from the same client spend the burst.
+	for i := 1; i <= 2; i++ {
+		rec := scan("203.0.113.1:4000")
+		if rec.Code == http.StatusTooManyRequests {
+			t.Fatalf("request %d: unexpected 429 within burst", i)
+		}
+	}
+
+	// Third request from the same client is refused.
+	rec := scan("203.0.113.1:4000")
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("third request: status = %d, want 429", rec.Code)
+	}
+	if rec.Header().Get("Retry-After") == "" {
+		t.Error("429 without Retry-After: a refused caller is told to stop, not when to return")
+	}
+	var body struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode 429 body: %v", err)
+	}
+	if body.Code != "rate_limited" {
+		t.Errorf("429 code = %q, want rate_limited", body.Code)
+	}
+
+	// A different client still has its own full burst.
+	rec = scan("203.0.113.2:4000")
+	if rec.Code == http.StatusTooManyRequests {
+		t.Fatalf("other client: got 429, want independent burst")
+	}
+}

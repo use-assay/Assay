@@ -72,6 +72,23 @@ func TestDocLinksDetectsBrokenLinks(t *testing.T) {
 	}
 }
 
+func TestDocLinksAcceptsDefinedAndReportsUndefinedReferences(t *testing.T) {
+	root := t.TempDir()
+	writeDoc(t, root, "README.md", "[Freshness]\n[policy][docs]\n[unknown][]\n[missing shortcut]\n"+
+		"- [x] completed\n- [ ] todo\n[^note]\n`[inline code]`\n\n"+
+		"[docs]: docs/freshness.md#policy\n[Freshness]: docs/freshness.md\n")
+	writeDoc(t, root, "docs/freshness.md", "# Policy\n")
+	failures, err := docLinkFailures(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(failures, "\n")
+	if len(failures) != 2 || !strings.Contains(joined, "undefined Markdown reference \"unknown\"") ||
+		!strings.Contains(joined, "undefined Markdown reference \"missing shortcut\"") {
+		t.Fatalf("expected two undefined references, got %v", failures)
+	}
+}
+
 func writeDoc(t *testing.T, root, name, content string) {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(name))
@@ -118,6 +135,10 @@ func docLinkFailures(repoRoot string) ([]string, error) {
 			continue
 		}
 		for _, link := range extractLinks(string(content)) {
+			if link.undefined {
+				fail("%s:%d: undefined Markdown reference %q", relPath(repoRoot, file), link.line, link.target)
+				continue
+			}
 			target, fragment := splitLink(link.target)
 			if !isLocalLink(target) {
 				continue // external URLs are explicitly not fetched
@@ -210,8 +231,9 @@ func withinRoot(root, path string) bool {
 }
 
 type docLink struct {
-	target string
-	line   int
+	target    string
+	line      int
+	undefined bool
 }
 
 var (
@@ -219,11 +241,23 @@ var (
 	idRe   = regexp.MustCompile(`<a\s+[^>]*(?:id|name)\s*=\s*["']([^"']+)["']`)
 )
 
-// extractLinks returns inline Markdown links and images, skipping fenced code
+var (
+	referenceDefinition = regexp.MustCompile(`^\[([^\]^][^\]]*)\]:\s*(<[^>]*>|\S+)`)
+	referenceUse        = regexp.MustCompile(`\[([^\[\]]+)\](?:\[([^\[\]]*)\])?`)
+	inlineMarkdownLink  = regexp.MustCompile(`\[[^\[\]]*\]\([^)]*\)`)
+)
+
+func referenceLabel(label string) string {
+	return strings.ToLower(strings.Join(strings.Fields(label), " "))
+}
+
+// extractLinks returns Markdown links and images, skipping fenced code
 // blocks, inline code spans, and HTML comments. Only the destination is kept;
 // the text is irrelevant to the check.
 func extractLinks(content string) []docLink {
 	var links []docLink
+	var references []docLink
+	definitions := make(map[string]string)
 	inFence := false
 	fence := ""
 	inComment := false
@@ -267,11 +301,38 @@ func extractLinks(content string) []docLink {
 
 		// Markdown inside a code span is text, not a link.
 		lineText := regexp.MustCompile("`[^`]*`").ReplaceAllString(trimmed, "")
+		if match := referenceDefinition.FindStringSubmatch(lineText); match != nil {
+			label := referenceLabel(match[1])
+			if _, exists := definitions[label]; !exists {
+				definitions[label] = strings.TrimSuffix(strings.TrimPrefix(match[2], "<"), ">")
+			}
+			continue
+		}
+		remainder := inlineMarkdownLink.ReplaceAllString(lineText, "")
+		for _, match := range referenceUse.FindAllStringSubmatch(remainder, -1) {
+			label := match[2]
+			if label == "" {
+				label = match[1]
+			}
+			label = referenceLabel(label)
+			if label == "x" || label == "" || strings.HasPrefix(label, "^") || strings.HasPrefix(label, "!") {
+				continue
+			}
+			references = append(references, docLink{target: label, line: i + 1})
+		}
 		for _, m := range linkRe.FindAllStringSubmatch(lineText, -1) {
 			dest := strings.TrimSpace(m[1])
 			dest = strings.TrimPrefix(strings.TrimSuffix(dest, ">"), "<")
 			links = append(links, docLink{target: dest, line: i + 1})
 		}
+	}
+	for _, ref := range references {
+		if destination, ok := definitions[ref.target]; ok {
+			ref.target = destination
+		} else {
+			ref.undefined = true
+		}
+		links = append(links, ref)
 	}
 	return links
 }

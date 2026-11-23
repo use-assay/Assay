@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "subject": "synthetic-code-claimed-different-issuer",
+  "why": "a synthetic fixture proving that the reciprocity rule refuses a code-only match: the issuer's home_domain (impersonation.example) publishes a stellar.toml that claims AQUA under a different issuer. Claims() requires both code AND issuer to match, so accountability is unverified even though the toml names the same asset code. This is the impersonation shape the reciprocity check exists to catch (#379).",
+  "files": [
+    {"file": "asset.json", "url": "https://horizon.stellar.org/assets?asset_code=AQUA&asset_issuer=GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA", "captured": "2026-08-10", "note": "synthetic payload derived from aqua-clear-verified with home_domain set to impersonation.example (#379)"},
+    {"file": "account.json", "url": "https://horizon.stellar.org/accounts/GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA", "captured": "2026-08-10", "note": "synthetic payload with home_domain impersonation.example; flags unchanged from aqua-clear-verified (#379)"},
+    {"file": "stellar.toml", "url": "https://impersonation.example/.well-known/stellar.toml", "captured": "2026-11-22", "note": "constructed synthetic toml: claims AQUA code under a different issuer (GDSTRSHXHGJ7ZIVRBXEYE5Q74XUVCUSEKEBR7UCHEUUEK72N7I7KJ6JH), not the actual AQUA issuer (#379)"},
+    {"file": "blocked.json", "url": "https://api.stellar.expert/explorer/directory/blocked-domains/impersonation.example", "captured": "2026-11-22", "note": "constructed synthetic payload: impersonation.example is not on the blocklist (#379)"},
+    {"file": "directory.json", "url": "https://api.stellar.expert/explorer/directory/GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA", "captured": "2026-11-22", "note": "constructed synthetic payload: directory domain set to impersonation.example so it agrees with home_domain, letting the check proceed to the Claims() reciprocity test (#379)"}
+  ],
+  "expected": {
+    "state": "valid",
+    "base": "clear",
+    "severity": "clear",
+    "escalated": false,
+    "undetermined": false,
+    "accountability": "unverified",
+    "checks": {
+      "capability": {"severity": "clear"},
+      "mutability": {"severity": "clear"},
+      "sep1-domain": {"severity": "clear", "mechanics": ["domain_unverified"]},
+      "reputation": {"severity": "clear", "escalation": true}
+    }
+  }
+}

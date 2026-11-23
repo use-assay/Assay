@@ -274,6 +274,7 @@ pub enum Quorum {
     Met(Safety),        // at least `threshold` responding; conservative result
     Unavailable(u32),   // fewer than `threshold` responding: an outage
     Contested(u32),     // `threshold` or more responding, but they differ
+    InvalidArguments,   // malformed call (threshold 0, threshold > distinct attestors, or too many attestors): not an outage
 }
 ```
 

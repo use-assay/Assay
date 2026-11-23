@@ -26,6 +26,7 @@ import (
 	"github.com/use-assay/assay/internal/mechanics"
 	"github.com/use-assay/assay/internal/replay"
 	"github.com/use-assay/assay/internal/scan"
+	"github.com/use-assay/assay/internal/temporal"
 )
 
 func main() {
@@ -88,7 +89,7 @@ func usage(w io.Writer) {
                                   verify an offline bundle without a network
   assay diff [-json] A.json B.json
                                   compare two saved reports and print what changed
-  assay history [-guarantee] [-raw] CODE-ISSUER
+  assay history [-guarantee] [-raw] [-server URL] CODE-ISSUER
                                   print the asset's observation history
   assay registry-history [-rpc URL] [-contract C...] [-json] ASSET
                                   print the registry's attest/revoke events for an asset
@@ -97,6 +98,7 @@ func usage(w io.Writer) {
                                   compare a stored hash with canonical preimage bytes
   assay checks                    print every check's ID and description
   assay serve [-addr ADDR] [-history PATH] [-history-retention N]
+  assay serve [-addr] [-history PATH] [-observe FILE] [-observe-interval DURATION]
                                   serve the HTTP API and UI
   assay version                   print scanner identity, preimage encodings
                                   and build (VCS, Go) information
@@ -123,6 +125,17 @@ The attestation command additionally accepts:
                           reproduced from a fresh scan
   -bundle OUT             also write an offline verification bundle (raw
                           source bytes, report, preimage, digest) to OUT
+
+The history command additionally accepts:
+  -server URL             fetch history from a running assay server instead of
+                          computing from a local scan (e.g. http://localhost:8080)
+
+The serve command additionally accepts:
+  -observe FILE           path to asset list file for scheduled observation
+  -observe-interval DURATION
+                          interval between scheduled scans (default 6h)
+  -trusted-proxies CIDR[,CIDR...]
+                          trusted reverse proxy CIDRs for rate limiting
 `)
 }
 
@@ -495,6 +508,7 @@ func runHistory(args []string, d commandDeps) error {
 	cache := registerCacheFlags(fs)
 	guarantee := fs.Bool("guarantee", false, "exit non-zero when there is no history")
 	raw := fs.Bool("raw", false, "print only the history, tab-separated, for scripting")
+	serverURL := fs.String("server", "", "fetch history from a running assay server (e.g. http://localhost:8080)")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
@@ -514,8 +528,22 @@ func runHistory(args []string, d commandDeps) error {
 	if err != nil {
 		return err
 	}
+	var hist []historyEntry
 
-	hist := history(report)
+	if *serverURL != "" {
+		// Fetch history from server.
+		hist, err = fetchHistoryFromServer(ctx, *serverURL, asset.String())
+		if err != nil {
+			return err
+		}
+	} else {
+		// Compute history from local scan (existing behavior).
+		report, err := scanFuncFor(assetLists(), d)(ctx, asset)
+		if err != nil {
+			return err
+		}
+		hist = history(report)
+	}
 
 	if len(hist) == 0 {
 		msg := "assay history: no observations for " + asset.String()
@@ -539,6 +567,98 @@ func runHistory(args []string, d commandDeps) error {
 		return fmt.Errorf("history: write: %w", err)
 	}
 	return nil
+}
+
+// fetchHistoryFromServer fetches history from a running assay server's
+// /api/v1/history endpoint.
+func fetchHistoryFromServer(ctx context.Context, serverURL, asset string) ([]historyEntry, error) {
+	// Ensure serverURL has a scheme.
+	if !strings.HasPrefix(serverURL, "http://") && !strings.HasPrefix(serverURL, "https://") {
+		serverURL = "http://" + serverURL
+	}
+	// Trim trailing slash.
+	serverURL = strings.TrimSuffix(serverURL, "/")
+
+	url := serverURL + "/api/v1/history?asset=" + asset
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("history: build request: %w", err)
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("history: request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("history: server returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Parse the server's history response.
+	var serverResp struct {
+		State        string `json:"state"`
+		Reason       string `json:"reason,omitempty"`
+		Count        int    `json:"count"`
+		Observations []struct {
+			Asset              string    `json:"asset"`
+			At                 time.Time `json:"at"`
+			Mechanics          int       `json:"mechanics"`
+			BaseSeverity       string    `json:"base_severity"`
+			Severity           string    `json:"severity"`
+			Undetermined       bool      `json:"undetermined"`
+			UndeterminedChecks []string  `json:"undetermined_checks"`
+			Reason             string    `json:"reason,omitempty"`
+		} `json:"observations"`
+		Transitions []struct {
+			State          string   `json:"state"`
+			Reason         string   `json:"reason"`
+			AddedNames     []string `json:"added_names"`
+			RemovedNames   []string `json:"removed_names"`
+			Attribution    string   `json:"attribution"`
+			SeverityBefore string   `json:"severity_before"`
+			SeverityAfter  string   `json:"severity_after"`
+			Accountability struct {
+				From    string `json:"from"`
+				To      string `json:"to"`
+				Changed bool   `json:"changed"`
+				State   string `json:"state"`
+			} `json:"accountability"`
+		} `json:"transitions"`
+		LatestAt      *time.Time `json:"latest_at,omitempty"`
+		LatestAgeSecs *int64     `json:"latest_age_secs,omitempty"`
+		Retention     int        `json:"retention"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&serverResp); err != nil {
+		return nil, fmt.Errorf("history: decode response: %w", err)
+	}
+
+	// Convert server response to historyEntry format.
+	hist := make([]historyEntry, 0, len(serverResp.Observations))
+	for _, obs := range serverResp.Observations {
+		// Determine transition for this observation.
+		// The server response includes transitions array, but we need to map
+		// each observation to its transition. For simplicity, we use the
+		// observation's severity and a generic reason.
+		transition := "unknown"
+		reason := obs.BaseSeverity
+		if obs.Undetermined {
+			reason = "undetermined: " + strings.Join(obs.UndeterminedChecks, ", ")
+		}
+
+		hist = append(hist, historyEntry{
+			Asset:      obs.Asset,
+			Severity:   obs.Severity,
+			Transition: transition,
+			Reason:     reason,
+			Time:       obs.At,
+		})
+	}
+
+	return hist, nil
 }
 
 // history extracts the observation history from a report. The observations are
@@ -610,6 +730,12 @@ func runServe(args []string, log *slog.Logger) error {
 		"path to the observation history log (JSON Lines); empty keeps history in memory only")
 	retention := fs.Int("history-retention", historystore.DefaultRetention,
 		"observations retained per asset in the history store (at least 1)")
+	observeFile := fs.String("observe", "",
+		"path to asset list file (one CODE-ISSUER per line) for scheduled observation")
+	observeInterval := fs.Duration("observe-interval", 6*time.Hour,
+		"interval between scheduled scans of the asset list")
+	trustedProxies := fs.String("trusted-proxies", "",
+		"comma-separated CIDRs of trusted reverse proxies whose X-Forwarded-For headers are trusted")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
@@ -623,6 +749,24 @@ func runServe(args []string, log *slog.Logger) error {
 	srv, closeHistory, err := newServeServer(log, assetLists(), cache.options(), *historyPath, *retention)
 	if err != nil {
 		return err
+	srv := api.NewServer(log)
+	if *trustedProxies != "" {
+		proxies, err := api.ParseTrustedProxies(*trustedProxies)
+		if err != nil {
+			return fmt.Errorf("serve: trusted-proxies: %w", err)
+		}
+		srv.TrustedProxies = proxies
+	}
+	srv.Scanner = newScanner(assetLists())
+	var historyStore *historystore.Store
+	if *historyPath != "" {
+		store, err := historystore.Open(*historyPath)
+		if err != nil {
+			return fmt.Errorf("serve: history: %w", err)
+		}
+		srv.History = store
+		historyStore = store
+		defer func() { _ = historyStore.Close() }()
 	}
 	defer func() { _ = closeHistory() }()
 
@@ -636,6 +780,20 @@ func runServe(args []string, log *slog.Logger) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// Start scheduled observation if configured.
+	if *observeFile != "" {
+		assets, err := parseAssetListFile(*observeFile)
+		if err != nil {
+			return fmt.Errorf("serve: observe: %w", err)
+		}
+		if len(assets) == 0 {
+			log.Info("serve: observe: asset list is empty, no scheduled scans")
+		} else {
+			log.Info("serve: observe: scheduled scans enabled", "assets", len(assets), "interval", *observeInterval)
+			go runScheduledObservation(ctx, log, srv.Scanner, srv.History, assets, *observeInterval)
+		}
+	}
 
 	errChan := make(chan error, 1)
 	go func() {
@@ -677,4 +835,73 @@ func newServeServer(log *slog.Logger, lists []string, opts scan.Options, history
 
 	srv.History = historystore.NewWithRetention(retention)
 	return srv, func() error { return nil }, nil
+// parseAssetListFile reads a file with one CODE-ISSUER per line and returns
+// the parsed assets. Empty lines and lines starting with # are ignored.
+func parseAssetListFile(path string) ([]mechanics.Asset, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read asset list: %w", err)
+	}
+	var assets []mechanics.Asset
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		asset, err := scan.ParseAsset(line)
+		if err != nil {
+			return nil, fmt.Errorf("parse asset %q: %w", line, err)
+		}
+		assets = append(assets, asset)
+	}
+	return assets, nil
+}
+
+// runScheduledObservation runs periodic scans of the given assets and appends
+// observations to the history store. It runs until the context is cancelled.
+func runScheduledObservation(ctx context.Context, log *slog.Logger, scanner *scan.Scanner, history *historystore.Store, assets []mechanics.Asset, interval time.Duration) {
+	// Run an initial scan immediately.
+	scanAll(ctx, log, scanner, history, assets)
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			scanAll(ctx, log, scanner, history, assets)
+		}
+	}
+}
+
+// scanAll scans all assets sequentially and appends observations to history.
+func scanAll(ctx context.Context, log *slog.Logger, scanner *scan.Scanner, history *historystore.Store, assets []mechanics.Asset) {
+	for _, asset := range assets {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		scanCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		report, err := scanner.Scan(scanCtx, asset)
+		cancel()
+
+		if err != nil {
+			log.Error("scheduled scan failed", "asset", asset.String(), "err", err)
+			continue
+		}
+
+		// Record observation in history store.
+		if history != nil {
+			obs := temporal.ObservationFromReport(report)
+			if err := history.Append(obs); err != nil {
+				log.Error("scheduled scan: history append failed", "asset", asset.String(), "err", err)
+			}
+		}
+
+		log.Info("scheduled scan completed", "asset", asset.String(), "severity", report.Severity.String())
+	}
 }

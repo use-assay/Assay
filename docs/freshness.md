@@ -301,3 +301,5 @@ curl -s "https://horizon.stellar.org/accounts/<ISSUER>/operations?limit=200&orde
 If you re-run the measurement and get different counts, update this page —
 the windows are only as good as the data underneath them, and the data is
 supposed to be re-checked, not remembered.
+
+A report with a missing or zero scanned_at timestamp has unknown freshness and cannot be attested.

@@ -164,7 +164,7 @@ func (e *Evidence) UnmarshalJSON(b []byte) error {
 	type wire Evidence
 	var w wire
 	if err := json.Unmarshal(b, &w); err != nil {
-		return fmt.Errorf("mechanics: unmarshal evidence: %w", err)
+		return fmt.Errorf("evidence: %w", err)
 	}
 	*e = Evidence(w)
 	if e.LatestLedger == 0 && e.LedgerSequence > 0 {

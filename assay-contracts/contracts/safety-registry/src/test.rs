@@ -779,6 +779,172 @@ fn revoke_publishes_no_event_on_rejection() {
     );
 }
 
+/// revoke_many is all-or-nothing: if any asset in the batch is not currently
+/// attested, the entire batch fails with Error::NotAttested and no attestation is removed.
+#[test]
+fn revoke_many_all_or_nothing_if_one_missing() {
+    let (env, client, _) = setup();
+    let a1 = Address::generate(&env);
+    let a2 = Address::generate(&env);
+    let a3 = Address::generate(&env);
+    let missing = Address::generate(&env);
+
+    client.attest(&a1, &SEVERITY_CLEAR, &0, &hash(&env));
+    client.attest(&a2, &SEVERITY_CLEAR, &0, &hash(&env));
+    client.attest(&a3, &SEVERITY_CLEAR, &0, &hash(&env));
+
+    let batch = vec![&env, a1.clone(), a2.clone(), missing, a3.clone()];
+    let res = client.try_revoke_many(&batch);
+    assert_eq!(res, Err(Ok(Error::NotAttested)));
+
+    // None were removed
+    assert!(client.get_safety(&a1).is_some());
+    assert!(client.get_safety(&a2).is_some());
+    assert!(client.get_safety(&a3).is_some());
+}
+
+/// A batch larger than MAX_BATCH_SIZE is rejected with BatchTooLarge.
+#[test]
+fn revoke_many_over_cap_is_rejected() {
+    let (env, client, _) = setup();
+    let mut batch = Vec::new(&env);
+    for _ in 0..MAX_BATCH_SIZE + 1 {
+        batch.push_back(Address::generate(&env));
+    }
+    let res = client.try_revoke_many(&batch);
+    assert_eq!(res, Err(Ok(Error::BatchTooLarge)));
+}
+
+/// revoke_many emits exactly one Revoked event per revoked asset.
+#[test]
+fn revoke_many_emits_one_event_per_element() {
+    let (env, client, _) = setup();
+    let a1 = Address::generate(&env);
+    let a2 = Address::generate(&env);
+
+    client.attest(&a1, &SEVERITY_CLEAR, &0, &hash(&env));
+    client.attest(&a2, &SEVERITY_CLEAR, &0, &hash(&env));
+
+    env.ledger().set_timestamp(9_999);
+    let batch = vec![&env, a1.clone(), a2.clone()];
+    client.revoke_many(&batch);
+
+    let mut d1 = Map::<Symbol, soroban_sdk::Val>::new(&env);
+    d1.set(Symbol::new(&env, "revoked_at"), 9_999u64.into_val(&env));
+    let mut d2 = Map::<Symbol, soroban_sdk::Val>::new(&env);
+    d2.set(Symbol::new(&env, "revoked_at"), 9_999u64.into_val(&env));
+
+    assert_eq!(
+        env.events().all().filter_by_contract(&client.address),
+        vec![
+            &env,
+            (
+                client.address.clone(),
+                (symbol_short!("revoke"), a1).into_val(&env),
+                d1.into_val(&env),
+            ),
+            (
+                client.address.clone(),
+                (symbol_short!("revoke"), a2).into_val(&env),
+                d2.into_val(&env),
+            ),
+        ],
+    );
+}
+
+/// An empty batch succeeds and writes nothing.
+#[test]
+fn revoke_many_empty_batch_succeeds_and_does_nothing() {
+    let (env, client, _) = setup();
+    let empty = Vec::new(&env);
+    client.revoke_many(&empty);
+
+    assert_eq!(
+        env.events().all().filter_by_contract(&client.address),
+        vec![&env],
+    );
+}
+
+#[test]
+fn revoke_many_before_init_returns_not_initialized() {
+    let env = Env::default();
+    let contract_id = env.register(SafetyRegistry, ());
+    let client = SafetyRegistryClient::new(&env, &contract_id);
+
+    let res = client.try_revoke_many(&Vec::new(&env));
+    assert_eq!(res, Err(Ok(Error::NotInitialized)));
+}
+
+#[test]
+fn revoke_many_rejects_unauthorized_caller() {
+    let env = Env::default();
+    let contract_id = env.register(SafetyRegistry, ());
+    let client = SafetyRegistryClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    client.init(&admin);
+
+    let caller = Address::generate(&env);
+    let asset = Address::generate(&env);
+    let batch = vec![&env, asset.clone()];
+
+    let err = client
+        .mock_auths(&[MockAuth {
+            address: &caller,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "revoke_many",
+                args: (&batch,).into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .try_revoke_many(&batch)
+        .expect_err("non-admin must be rejected");
+
+    assert!(err.is_err());
+}
+
+/// A batch of exactly MAX_BATCH_SIZE is accepted and extends the instance TTL.
+#[test]
+fn revoke_many_size_bound_is_measured_and_holds_headroom() {
+    let (env, client, _) = setup();
+    let mut batch = Vec::new(&env);
+    for _ in 0..MAX_BATCH_SIZE {
+        let asset = Address::generate(&env);
+        client.attest(&asset, &SEVERITY_MEDIUM, &0, &hash(&env));
+        batch.push_back(asset);
+    }
+
+    client.revoke_many(&batch);
+
+    let r = env.cost_estimate().resources();
+    let footprint = r.disk_read_entries + r.memory_read_entries + r.write_entries;
+
+    assert!(
+        r.contract_events_size_bytes <= 16_384,
+        "event bytes {} exceed the 16 384 budget",
+        r.contract_events_size_bytes
+    );
+    assert!(
+        r.write_entries <= 200,
+        "write entries {} exceed 200",
+        r.write_entries
+    );
+    assert!(footprint <= 400, "footprint entries {footprint} exceed 400");
+    assert!(
+        r.write_bytes <= 132_096,
+        "write bytes {} exceed 132 096",
+        r.write_bytes
+    );
+    assert!(
+        r.instructions <= 400_000_000,
+        "instructions exceed 400 000 000"
+    );
+    assert!(r.mem_bytes <= 41_943_040, "memory exceeds 41 943 040");
+
+    let max = max_ttl(&env, &client);
+    assert_eq!(instance_ttl(&env, &client), max);
+}
+
 // ---------------------------------------------------------------------------
 // TTL and archival (#87)
 // ---------------------------------------------------------------------------
@@ -2060,9 +2226,13 @@ fn version_returns_interface_version() {
 /// Version 2 adds `cancel_admin_transfer` (#320). Version 3 is the #284
 /// change: the stored `Safety` gained `preimage_version`, so a reader can tell
 /// which evidence encoding its `evidence_hash` used.
+/// Version 2 is the #349 change — `Error::InvalidAsset` joined the error set.
+/// Version 3 is the #284 change: the stored `Safety` gained `preimage_version`,
+/// so a reader can tell which evidence encoding its `evidence_hash` used.
+/// Version 4 is the #567 change: `Quorum::InvalidArguments` joined the enum.
 #[test]
 fn interface_version_is_abi() {
-    assert_eq!(INTERFACE_VERSION, 3);
+    assert_eq!(INTERFACE_VERSION, 4);
 }
 
 /// Every bump of the constant must be recorded in the interface changelog. The
@@ -2364,7 +2534,7 @@ fn quorum_deduplicates_attestors_and_cannot_inflate_threshold() {
     // If threshold is 2, a duplicated single attestor cannot satisfy it.
     let attestors = vec![&env, admin.clone(), admin.clone(), admin.clone()];
     let res = client.quorum(&asset, &attestors, &2, &0);
-    assert_eq!(res, Quorum::Unavailable(0));
+    assert_eq!(res, Quorum::InvalidArguments);
 
     // Threshold 1 passes with the deduplicated single attestor
     let res1 = client.quorum(&asset, &attestors, &1, &0);
@@ -2377,6 +2547,95 @@ fn quorum_deduplicates_attestors_and_cannot_inflate_threshold() {
             attested_at: env.ledger().timestamp(),
             preimage_version: 4,
         })
+    );
+}
+
+// ---------------------------------------------------------------------------
+// #567: invalid arguments are distinguishable from zero responders
+// ---------------------------------------------------------------------------
+
+#[test]
+fn quorum_zero_threshold_is_invalid_arguments() {
+    let (env, client, admin) = setup();
+    let asset = Address::generate(&env);
+    client.attest(&asset, &SEVERITY_CLEAR, &0, &hash(&env));
+
+    let attestors = vec![&env, admin];
+    assert_eq!(
+        client.quorum(&asset, &attestors, &0, &0),
+        Quorum::InvalidArguments
+    );
+    assert!(!client.is_safe_quorum(&asset, &attestors, &0, &SEVERITY_CLEAR, &0));
+}
+
+#[test]
+fn quorum_threshold_above_deduplicated_set_is_invalid_arguments() {
+    let (env, client, admin) = setup();
+    let asset = Address::generate(&env);
+    let other = Address::generate(&env);
+    client.attest(&asset, &SEVERITY_CLEAR, &0, &hash(&env));
+
+    // Threshold above the raw set.
+    let attestors = vec![&env, admin.clone(), other.clone()];
+    assert_eq!(
+        client.quorum(&asset, &attestors, &3, &0),
+        Quorum::InvalidArguments
+    );
+
+    // Valid for the raw list (3 entries) but too large once deduplicated (2).
+    let with_dupes = vec![&env, admin.clone(), other.clone(), admin.clone()];
+    assert_eq!(
+        client.quorum(&asset, &with_dupes, &3, &0),
+        Quorum::InvalidArguments
+    );
+    assert!(!client.is_safe_quorum(&asset, &with_dupes, &3, &SEVERITY_CLEAR, &0));
+
+    // Empty set: any non-zero threshold exceeds it.
+    let empty: Vec<Address> = Vec::new(&env);
+    assert_eq!(
+        client.quorum(&asset, &empty, &1, &0),
+        Quorum::InvalidArguments
+    );
+}
+
+#[test]
+fn quorum_set_above_max_attestors_is_invalid_arguments() {
+    let (env, client, _admin) = setup();
+    let asset = Address::generate(&env);
+
+    let mut attestors = Vec::new(&env);
+    for _ in 0..(MAX_ATTESTORS + 1) {
+        attestors.push_back(Address::generate(&env));
+    }
+    assert_eq!(attestors.len(), MAX_ATTESTORS + 1);
+
+    assert_eq!(
+        client.quorum(&asset, &attestors, &1, &0),
+        Quorum::InvalidArguments
+    );
+    assert!(!client.is_safe_quorum(&asset, &attestors, &1, &SEVERITY_CLEAR, &0));
+}
+
+/// Valid arguments with no responders stay `Unavailable(0)`, so a caller can
+/// tell "my call is wrong" (`InvalidArguments`) from "attestors are silent".
+#[test]
+fn quorum_zero_responders_is_unavailable_not_invalid_arguments() {
+    let (env, client, _admin) = setup();
+    let asset = Address::generate(&env);
+
+    let attestors = vec![&env, Address::generate(&env), Address::generate(&env)];
+    let res = client.quorum(&asset, &attestors, &1, &0);
+    assert_eq!(res, Quorum::Unavailable(0));
+    assert_ne!(res, Quorum::InvalidArguments);
+
+    // Exactly MAX_ATTESTORS distinct attestors is still a valid call.
+    let mut at_bound = Vec::new(&env);
+    for _ in 0..MAX_ATTESTORS {
+        at_bound.push_back(Address::generate(&env));
+    }
+    assert_eq!(
+        client.quorum(&asset, &at_bound, &MAX_ATTESTORS, &0),
+        Quorum::Unavailable(0)
     );
 }
 

@@ -27,6 +27,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -290,6 +291,9 @@ func New(baseURL string) *Client {
 // policy, defaulting to the public root when baseURL is empty.
 func NewWithOptions(baseURL string, opts Options) *Client {
 	if baseURL == "" {
+		baseURL = os.Getenv("ASSAY_STELLAREXPERT_URL")
+	}
+	if baseURL == "" {
 		baseURL = DefaultURL
 	}
 	now := opts.Now
@@ -397,26 +401,38 @@ func (c *Client) BlockedDomain(ctx context.Context, domain string, opts ...Looku
 // returned uncached, because storing an outage would keep serving it after the
 // source recovered — the same "an outage rendered as an answer" failure the
 // error fields exist to prevent.
+//
+// GetOrFetch provides single-flight: concurrent lookups for the same key share
+// one upstream request. Waiters receive the same result and the same
+// FetchedAt. Errors are shared but not cached.
 func lookup[T stamped](c *cache.Cache[T], key string, opts []LookupOption, fetch func() (T, error)) (T, bool, error) {
 	var lo lookupOptions
 	for _, opt := range opts {
 		opt(&lo)
 	}
-	if !lo.bypass {
-		if e, ok := c.Get(key); ok {
-			return e.Value, true, nil
+	if lo.bypass {
+		val, err := fetch()
+		if err != nil {
+			var zero T
+			return zero, false, err
 		}
+		// Bypass still stores the fresh answer.
+		c.Put(key, cache.Entry[T]{Value: val, FetchedAt: val.fetchedAt()})
+		return val, false, nil
 	}
-	val, err := fetch()
+
+	entry, fromCache, err := c.GetOrFetch(key, func() (cache.Entry[T], error) {
+		val, err := fetch()
+		if err != nil {
+			return cache.Entry[T]{}, err
+		}
+		return cache.Entry[T]{Value: val, FetchedAt: val.fetchedAt()}, nil
+	})
 	if err != nil {
 		var zero T
-		return zero, false, err
+		return zero, false, fmt.Errorf("lookup: %w", err)
 	}
-	// A bypassed fetch still stores its fresh answer: the caller asked for the
-	// source's current statement, and keeping a superseded copy would only
-	// serve it later. The cache no-ops when its TTL is non-positive.
-	c.Put(key, cache.Entry[T]{Value: val, FetchedAt: val.fetchedAt()})
-	return val, false, nil
+	return entry.Value, fromCache, nil
 }
 
 // Asset looks up StellarExpert's asset-level metadata and rating.

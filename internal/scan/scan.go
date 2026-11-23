@@ -523,18 +523,18 @@ func (s *Scanner) Subject(ctx context.Context, a mechanics.Asset) (*mechanics.Su
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		expertAssetAttemptedAt = time.Now().UTC()
+		expertAssetAttemptedAt = s.now()
 		expertCtx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
 		expertAsset, err := s.Expert.Asset(expertCtx, a.Code, a.Issuer)
 		if err != nil {
 			// The drop is recorded and the scan moves on: this source is
 			// best-effort evidence, never a reason to fail a scan.
-			expertAssetErr = err.Error()
+			expertAssetErr = sep1.CanonicalFailure(err)
 			return
 		}
 		expertAssetVal = expertAsset
-		expertAssetFetchedAt = time.Now().UTC()
+		expertAssetFetchedAt = s.now()
 	}()
 
 	wg.Wait()

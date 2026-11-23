@@ -68,14 +68,14 @@ func EvaluateFreshness(rep *Report, asOf time.Time, window time.Duration) *Repor
 		return rep
 	}
 
-	if window <= 0 {
+	if rep.ScannedAt.IsZero() {
 		rep.Stale = false
-		rep.State = StateValid
-		rep.StaleReason = ""
+		rep.State = StateUnknown
+		rep.StaleReason = "missing scanned_at timestamp"
 		return rep
 	}
 
-	if rep.ScannedAt.IsZero() {
+	if window <= 0 {
 		rep.Stale = false
 		rep.State = StateValid
 		rep.StaleReason = ""

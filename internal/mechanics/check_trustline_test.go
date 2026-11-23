@@ -125,8 +125,20 @@ func TestTrustlineDeauthorized(t *testing.T) {
 func TestTrustlineHolderDoesNotHoldAsset(t *testing.T) {
 	f := runTL(t, tlSubject(tlTestHolder, nil, ""))
 
-	if !f.Undetermined {
-		t.Fatal("absent trustline must be undetermined: the per-holder question cannot be answered")
+	if f.Undetermined {
+		t.Fatal("absent trustline must be determined: it is a ledger fact that the holder holds no asset")
+	}
+	if len(f.Evidence) != 1 {
+		t.Fatalf("absent trustline evidence entries = %d, want 1: %+v", len(f.Evidence), f.Evidence)
+	}
+	if f.Evidence[0].Claim != "no trustline for asset TESTTKN-"+tlTestIssuer {
+		t.Errorf("unexpected no-trustline evidence claim: %q", f.Evidence[0].Claim)
+	}
+	if f.Evidence[0].Attempted {
+		t.Error("no trustline is a successful ledger read, not an attempted fetch")
+	}
+	if f.Evidence[0].URL != "https://horizon.stellar.org/accounts/"+tlTestHolder {
+		t.Errorf("no-trustline evidence URL = %q", f.Evidence[0].URL)
 	}
 }
 

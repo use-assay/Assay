@@ -172,10 +172,20 @@ severity — reputation moved an asset *down*, which
   served by the history API ([history.md](history.md)), and `internal/temporal`
   reports capability and evidence changes between consecutive scans. A consumer
   that needs to know an asset *was* escalated can see that it was.
+- A fall caused by a withdrawn listing is **typed and attributed**, not left to
+  an evidence diff: `Transition.Deescalation` is emitted exactly when final
+  severity falls and names the consumed source whose claim withdrew
+  ([transitions.md](transitions.md#de-escalation)). It is held by
+  `TestDeescalationWithdrawnListing` and the committed sequence
+  `TestSequencesProduceExpectedTransitions/seq7-withdrawn-listing` in
+  `internal/temporal`, including the blocklist-cleared shape
+  (`TestDeescalationBlocklistCleared`) and the case where no source's evidence
+  records the withdrawal, which is reported as *unexplained* rather than as a
+  confirmed retraction.
 
 Residual risk accepted, pending implementation: a consumer reading only the
-current attestation sees the lower level with no indication that it was ever
-higher. [docs/ever-escalated-marker.md](ever-escalated-marker.md) records the
+current attestation — without the history API — sees the lower level with no
+indication that it was ever higher. [docs/ever-escalated-marker.md](ever-escalated-marker.md) records the
 design decision — a stored, monotone maximum historical severity exposed through
 a read-only entrypoint — which closes the gap by letting a gate refuse assets
 that were once critical. Implementation is held for sign-off on that design;

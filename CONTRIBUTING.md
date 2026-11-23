@@ -526,3 +526,5 @@ entries already there. Two rules the file states and a review will enforce:
 
 Present tense, explain the why when it isn't obvious. Keep unrelated changes
 in separate commits. Don't commit binaries, coverage output, or logs.
+
+Give every public Makefile target a one-line ## description so it appears in make help.

@@ -23,3 +23,4 @@
 /scripts/merge-gate.sh @use-assay/maintainers
 /scripts/check-codeowners.sh @use-assay/maintainers
 /.github/workflows @use-assay/maintainers
+/.github/scripts @use-assay/maintainers

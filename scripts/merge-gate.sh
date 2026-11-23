@@ -72,6 +72,7 @@ CRITICAL_PATHS=(
     "scripts/merge-gate.sh"
     "scripts/check-codeowners.sh"                         # keeps GitHub review routing aligned with this list
     ".github/workflows"
+    ".github/scripts"                                         # the automerge bot's logic; it decides what merges unreviewed
 )
 
 # Dependency files. A new Go module or Rust crate is a decision, not a side

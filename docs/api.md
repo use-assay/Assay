@@ -39,6 +39,34 @@ caller that correlates across services keeps its own token.
 The rule exists because the identifier reaches both the operator's logs and a
 response header: an unbounded value would bloat every log line of the request,
 and arbitrary characters would make it useless as a grep key.
+## Reverse Proxies and Rate Limiting
+
+In public deployments behind a reverse proxy (such as nginx, Caddy, or a cloud load balancer), `r.RemoteAddr` is the IP of the proxy peer. Without proxy awareness, all clients connecting through that proxy share a single rate-limiting bucket.
+
+To key rate limiters on the real client IP, pass `-trusted-proxies CIDR[,CIDR...]` to `assay serve`:
+
+```sh
+assay serve -addr 127.0.0.1:8080 -trusted-proxies 127.0.0.1/32,10.0.0.0/8
+```
+
+When the immediate connecting peer is within a configured trusted CIDR, Assay inspects `X-Forwarded-For` from right to left, skipping trusted intermediate hops, and keys the rate limiter on the first untrusted IP address. If the connecting peer is not in any trusted CIDR, `X-Forwarded-For` is ignored and the peer IP is used directly, preventing untrusted callers from forging their own rate limit bucket. The chosen client key is recorded in structured logs as `client_key`.
+
+### Reverse proxy configuration example (nginx)
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name assay.example.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
 
 ## Error Bodies
 
@@ -62,7 +90,7 @@ the message text.
 | `asset_not_found` | The asset does not exist on the ledger. |
 | `account_not_found` | The account does not exist on the ledger. |
 | `upstream_unavailable` | A required upstream call (Horizon, StellarExpert) failed. |
-| `rate_limited` | The client has exceeded the exposure rate limit; see `Retry-After`. |
+| `rate_limited` | The client has exceeded a rate limit (exposure always; scan when configured); see `Retry-After`. |
 
 ## Conventions
 
@@ -134,6 +162,10 @@ Status codes:
 - `400 Bad Request`: invalid asset code or issuer, missing `?asset=`, or an
   identifier naming the native asset — see above.
 - `404 Not Found`: asset not found on the ledger.
+- `429 Too Many Requests`: scan rate limit exceeded (only when configured via
+  `--scan-rate`; not applied by default). `Retry-After` gives the wait in
+  seconds. Public deployments should configure this to protect the shared
+  Horizon and StellarExpert upstreams.
 - `502 Bad Gateway`: the scan failed on an underlying network or upstream
   error; the message names the failing source.
 
@@ -167,7 +199,7 @@ Horizon (`/accounts/{holder}`) and adds one finding, `check: "trustline"`
 | `is_clawback_enabled: true` | Evidence quoting both trustline flags, and mechanic `trustline_clawback_enabled` | `mechanics` gains `trustline_clawback_enabled` |
 | Not authorized (`is_authorized: false`) | Mechanic `trustline_deauthorized` | `mechanics` gains `trustline_deauthorized` |
 | Authorized, no clawback | Evidence quoting both flags, no mechanic; the reasoning explains CAP-0035 grandfathering | Unchanged |
-| The holder does not hold the asset | `undetermined: true`: there is no trustline to inspect | `undetermined: true`, `undetermined_checks` includes `trustline`, and the `X-Assay-Undetermined: true` header |
+| The holder does not hold the asset | Determined finding: no trustline exists, evidenced from `/accounts/{holder}` | Unchanged |
 | Horizon could not be reached for the holder | `undetermined: true`, with a `not retrievable:` evidence claim | As above |
 
 **`severity` never changes.** Severity is issuer-level and holder-independent
@@ -208,25 +240,96 @@ curl -s 'http://localhost:8080/api/v1/scan?asset=USDZ-GAKTLPC4ZV37SSCITQ5IS5AQ4W
 To check every trustline an account holds at once, use the
 exposure endpoint (`GET /api/v1/exposure`, below).
 
-### `GET /api/v1/history?asset=CODE-ISSUER`
+### `GET /api/v1/history?asset=CODE-ISSUER&limit=100&before=...`
 
-Returns an asset's recorded observations in time order, oldest first, with
-the transitions derived between each consecutive pair. It reads only what
-scans have recorded; it never scans. The full semantics — retention, what an
-empty history means, and why an undetermined observation is returned marked
-rather than dropped — are in [history.md](history.md).
+Returns one bounded page of an asset's recorded observations in time order,
+oldest first, with the transitions derived between each consecutive pair. It
+reads only what scans have recorded; it never scans. The full semantics —
+pagination, both retention bounds, what an empty history means, and why an
+undetermined observation is returned marked rather than dropped — are in
+[history.md](history.md).
 
 Parameters:
 
 - `asset` (required): asset code and issuer.
+- `limit` (optional): page size, default **100**, maximum **256**.
+- `before` (optional): exclusive cursor; returns observations strictly older
+  than this RFC 3339 timestamp. Send the previous response's `next_before`
+  back as `before` to walk the history.
 
 Response:
 
 - `asset`, `state` (`valid`, `unknown`, or `missing` — the completeness of
   the history, not of the request), a plain-language `reason` whenever the
-  state is not `valid`, `count`, `observations[]`, `transitions[]`,
-  `latest_at` and `latest_age_secs` (so a consumer applies its own staleness
-  policy), and `retention` (the per-asset cap the results were read against).
+  state is not `valid`, `count` (observations on this page),
+  `observations[]`, `transitions[]` (including the transition into the page
+  from its predecessor, so a change at a page boundary is still reported),
+  `limit` (the page size applied), `next_before` (absent on the last page),
+  `latest_at` and `latest_age_secs` (the most recent observation overall, so a
+  consumer applies its own staleness policy), `retention` (the per-asset cap)
+  and `max_assets` (the global cap on assets the store retains).
+
+Status codes:
+
+- `200 OK`: a page of history returned — including an empty or empty-history
+  one. An asset with no observations is a successful result with
+  `state: "missing"`, never a 404: "we have never looked" and "the request
+  failed" are different answers. A page past the oldest retained observation
+  is an empty page with `state: "valid"`, not an error.
+- `400 Bad Request`: missing or invalid asset, the network's native asset, a
+  `limit` outside 1-256 (or not an integer), or a `before` that is not an
+  RFC 3339 timestamp.
+
+### `GET /api/v1/events?asset=CODE-ISSUER`
+
+Opens a Server-Sent Events (SSE) stream that pushes a message whenever a
+stored observation produces a capability, severity, or accountability
+transition. This allows consumers to react to changes in real time without
+polling.
+
+Parameters:
+
+- `asset` (required): asset code and issuer. The stream delivers events for
+  all assets; the parameter is validated for format but does not filter the
+  stream in this version.
+
+Stream format:
+
+- Standard SSE: each event is a `data:` line with a JSON object, followed by
+  a blank line.
+- Heartbeats: a `:` comment line every 15 seconds to keep the connection
+  alive through proxies and load balancers.
+- The initial comment `: connected` is sent immediately after the headers.
+
+Event payload:
+
+```json
+{
+  "asset": "USDC-GA5Z...",
+  "transition": { ... },
+  "timestamp": "2026-01-15T12:34:56Z"
+}
+```
+
+The `transition` object has the same structure as the transitions returned by
+`GET /api/v1/history` (see the `Transition` schema in the OpenAPI document).
+A transition's `state` is `valid`, `unknown`, or `missing`; only `valid`
+transitions are pushed (transitions involving undetermined observations are
+not emitted).
+
+Limits:
+
+- Maximum 100 concurrent SSE connections per server instance (configurable via
+  `Server.EventsLimiter`). Excess connections receive `429 Too Many Requests`
+  with `code: "rate_limited"`.
+
+Status codes:
+
+- `200 OK`: SSE stream established. The connection stays open until the
+  client closes it or the server shuts down.
+- `400 Bad Request`: missing or invalid asset parameter.
+- `429 Too Many Requests`: concurrent connection limit reached.
+- `503 Service Unavailable`: SSE not supported by the server infrastructure.
 
 Status codes:
 
@@ -267,8 +370,8 @@ Status codes:
 - `400 Bad Request`: missing or invalid `account`, `limit`, or `cursor`.
 - `404 Not Found`: account not found on the ledger.
 - `429 Too Many Requests`: rate limited. `Retry-After` gives the wait in
-  seconds. Exposure is rate-limited per client address because one request
-  runs a full scan per asset; `/api/v1/scan` is not affected.
+  seconds. Exposure is always rate-limited per client address because one
+  request runs a full scan per asset.
 - `502 Bad Gateway`: the account's trustline list could not be fetched.
 
 ### `GET /metrics`

@@ -496,3 +496,72 @@ func TestInjectedFetchErrorsProduceTheSameEvidenceHash(t *testing.T) {
 		t.Fatalf("same failure class produced different evidence hashes: %s != %s", hashes[0], hashes[1])
 	}
 }
+
+// TestParseToleratesBOM verifies that a stellar.toml prefixed with a UTF-8
+// BOM (as produced by some Windows editors) parses identically to the same
+// file without a BOM, and that the BOM does not corrupt any parsed field
+// values (#375).
+func TestParseToleratesBOM(t *testing.T) {
+	const tomlBody = `[[CURRENCIES]]
+code = "USDC"
+issuer = "` + issuer + `"
+`
+	bom := "\xef\xbb\xbf"
+
+	plain, err := sep1.Parse([]byte(tomlBody))
+	if err != nil {
+		t.Fatalf("parse without BOM: %v", err)
+	}
+	bommed, err := sep1.Parse([]byte(bom + tomlBody))
+	if err != nil {
+		t.Fatalf("parse with BOM: %v", err)
+	}
+
+	if !bommed.Claims("USDC", issuer) {
+		t.Error("BOM-prefixed toml: Claims returned false for a known currency")
+	}
+	if len(plain.Currencies) != len(bommed.Currencies) {
+		t.Errorf("BOM changed currency count: plain=%d bommed=%d",
+			len(plain.Currencies), len(bommed.Currencies))
+	}
+	if plain.Currencies[0].Code != bommed.Currencies[0].Code {
+		t.Errorf("BOM changed code: plain=%q bommed=%q",
+			plain.Currencies[0].Code, bommed.Currencies[0].Code)
+	}
+	if plain.Currencies[0].Issuer != bommed.Currencies[0].Issuer {
+		t.Errorf("BOM changed issuer: plain=%q bommed=%q",
+			plain.Currencies[0].Issuer, bommed.Currencies[0].Issuer)
+	}
+}
+
+// TestParseToleratesCRLF verifies that a stellar.toml using Windows CRLF line
+// endings is parsed correctly (#375).
+func TestParseToleratesCRLF(t *testing.T) {
+	crlf := "[[CURRENCIES]]\r\ncode = \"USDC\"\r\nissuer = \"" + issuer + "\"\r\n"
+
+	doc, err := sep1.Parse([]byte(crlf))
+	if err != nil {
+		t.Fatalf("parse CRLF: %v", err)
+	}
+	if !doc.Claims("USDC", issuer) {
+		t.Error("CRLF toml: Claims returned false for a known currency")
+	}
+}
+
+// TestParseBOMDoesNotAffectEvidence verifies that a BOM in the raw toml bytes
+// does not change the values of any fields that would appear in attributed
+// evidence — specifically the currency code and issuer that Claims reports on
+// (#375).
+func TestParseBOMDoesNotAffectEvidence(t *testing.T) {
+	const code = "USDC"
+	bom := "\xef\xbb\xbf"
+	body := "[[CURRENCIES]]\ncode = \"" + code + "\"\nissuer = \"" + issuer + "\"\n"
+
+	plain, _ := sep1.Parse([]byte(body))
+	bommed, _ := sep1.Parse([]byte(bom + body))
+
+	if plain.Currencies[0].Code != bommed.Currencies[0].Code ||
+		plain.Currencies[0].Issuer != bommed.Currencies[0].Issuer {
+		t.Error("BOM changed evidence fields: code or issuer differs between plain and BOM-prefixed parse")
+	}
+}
