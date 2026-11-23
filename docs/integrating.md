@@ -207,6 +207,21 @@ pub fn deposit(env: Env, asset: Address, from: Address, amount: i128) -> Result<
 }
 ```
 
+### Storage TTL and entry lifetime
+
+Soroban contract instances and persistent entries decay toward archival unless their time-to-live (TTL) is extended. Matching the safety registry's pattern ([deployment.md](deployment.md#entry-lifetime)), the example gate extends TTL on every write:
+- **Instance storage**: extended in the constructor and on `deposit` so gate configuration and contract code stay live as long as the gate is written to.
+- **Persistent storage**: extended on `deposit` for the holder's balance entry so active balances do not drift toward archival.
+
+```rust
+// Extend instance TTL to the network maximum
+let max = env.storage().max_ttl();
+env.storage().instance().extend_ttl(max, max);
+
+// Extend balance entry TTL on write
+env.storage().persistent().extend_ttl(&balance_key, max, max);
+```
+
 > [!WARNING]
 > **Bookkeeping-only demonstration:** The worked example in `contracts/example-gate`
 > only increments an internal balance counter (`storage().persistent()`) to demonstrate

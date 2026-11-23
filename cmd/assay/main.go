@@ -128,6 +128,8 @@ The serve command additionally accepts:
   -observe FILE           path to asset list file for scheduled observation
   -observe-interval DURATION
                           interval between scheduled scans (default 6h)
+  -trusted-proxies CIDR[,CIDR...]
+                          trusted reverse proxy CIDRs for rate limiting
 `)
 }
 
@@ -666,6 +668,8 @@ func runServe(args []string, log *slog.Logger) error {
 		"path to asset list file (one CODE-ISSUER per line) for scheduled observation")
 	observeInterval := fs.Duration("observe-interval", 6*time.Hour,
 		"interval between scheduled scans of the asset list")
+	trustedProxies := fs.String("trusted-proxies", "",
+		"comma-separated CIDRs of trusted reverse proxies whose X-Forwarded-For headers are trusted")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
@@ -674,6 +678,13 @@ func runServe(args []string, log *slog.Logger) error {
 	// serves consults the same configured lists, attributed the same way, and
 	// records them in the observation history like any other evidence.
 	srv := api.NewServer(log)
+	if *trustedProxies != "" {
+		proxies, err := api.ParseTrustedProxies(*trustedProxies)
+		if err != nil {
+			return fmt.Errorf("serve: trusted-proxies: %w", err)
+		}
+		srv.TrustedProxies = proxies
+	}
 	srv.Scanner = newScanner(assetLists())
 	var historyStore *historystore.Store
 	if *historyPath != "" {

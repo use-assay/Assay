@@ -69,6 +69,7 @@ pub fn is_safe_masked(env: Env, asset: Address, forbidden_mask: u32, max_age_sec
 pub fn attest(env: Env, asset: Address, severity: u32, flags: u32, evidence_hash: BytesN<32>) -> Result<(), Error>;
 pub fn attest_many(env: Env, attestations: Vec<Attestation>) -> Result<(), Error>;
 pub fn revoke(env: Env, asset: Address) -> Result<(), Error>;
+pub fn revoke_many(env: Env, assets: Vec<Address>) -> Result<(), Error>;
 pub fn init(env: Env, admin: Address) -> Result<(), Error>;
 pub fn transfer_admin(env: Env, new_admin: Address) -> Result<(), Error>;
 pub fn accept_admin(env: Env) -> Result<(), Error>;
@@ -311,6 +312,17 @@ That is a choice, not something left out:
 
 If a future consumer needs to prove on-chain that an asset *was* revoked,
 that is a new feature with its own ABI. It is not implied by this one.
+
+### `revoke_many`: withdrawing a batch of attestations
+
+`revoke_many(assets: Vec<Address>)` withdraws a batch of attestations in a single transaction. It is the batch counterpart to `revoke`:
+
+- **Admin-only:** requires authorization from the current admin.
+- **Capped at `MAX_BATCH_SIZE` (50):** a batch with more than 50 assets returns `Error::BatchTooLarge` and removes nothing.
+- **All-or-nothing:** a validation phase checks that every asset in `assets` is currently attested before any entry is removed. If any asset has no attestation, the call returns `Error::NotAttested` and nothing is removed.
+- **Events:** publishes one `Revoked` event per element with the current ledger timestamp (`revoked_at`).
+- **Empty batches:** an empty batch succeeds immediately and writes nothing (honest all-or-nothing over zero elements).
+- **TTL:** a non-empty batch extends the contract instance TTL to the network maximum.
 
 #### Migration
 

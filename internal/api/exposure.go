@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"errors"
-	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -226,10 +225,7 @@ func (s *Server) exposureFor(ctx context.Context, account string, tl horizon.Tru
 // silently.
 func (s *Server) withExposureLimit(limiter *RateLimiter, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		key := r.RemoteAddr
-		if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-			key = host
-		}
+		key := s.ClientKey(r)
 		ok, retry := limiter.Allow(key)
 		if !ok {
 			secs := int64(retry / time.Second)
@@ -253,10 +249,7 @@ func (s *Server) withExposureLimit(limiter *RateLimiter, next http.HandlerFunc) 
 // User-Agent from a single client. A refused caller is told when to retry.
 func (s *Server) withScanLimit(limiter *RateLimiter, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		key := r.RemoteAddr
-		if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-			key = host
-		}
+		key := s.ClientKey(r)
 		ok, retry := limiter.Allow(key)
 		if !ok {
 			secs := int64(retry / time.Second)

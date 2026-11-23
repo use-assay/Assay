@@ -60,6 +60,8 @@ The serve command additionally accepts:
   -observe FILE           path to asset list file for scheduled observation
   -observe-interval DURATION
                           interval between scheduled scans (default 6h)
+  -trusted-proxies CIDR[,CIDR...]
+                          trusted reverse proxy CIDRs for rate limiting
 ```
 
 Commands that scan also accept:
@@ -166,7 +168,7 @@ redistribution rules.
 ## assay verify
 
 Checks one asset end to end: re-scans it, recomputes the evidence hash, reads
-the on-chain attestation through the `stellar` CLI, and reports whether the two
+the on-chain attestation through Soroban RPC simulation without external dependencies, and reports whether the two
 agree. It replaces two commands and a human comparing hex by eye.
 
 ```
@@ -175,6 +177,7 @@ agree. It replaces two commands and a human comparing hex by eye.
 ./assay verify -max-age 3600 CODE-ISSUER   # also treat an old attestation as stale
 ./assay verify -differential CODE-ISSUER   # also re-read issuer flags via Soroban RPC
 ./assay verify -differential -rpc https://rpc.example CODE-ISSUER
+./assay verify -registry-rpc https://rpc.example -contract C... -network pubnet CODE-ISSUER
 ```
 
 Flags:
@@ -185,11 +188,15 @@ Flags:
 - `-differential` — opt in to a second ledger read: re-derive the issuer's
   authorization flags through Soroban RPC and compare them with the flags the
   scan used. It does not change the hash comparison; it runs alongside it.
-- `-rpc URL` — Soroban RPC endpoint for `-differential` (default: SDF testnet).
-  A pubnet run must name an endpoint the caller trusts.
+- `-rpc URL` — Soroban RPC endpoint for `-differential` (default: SDF testnet;
+  distinct from `-registry-rpc`). A pubnet run must name an endpoint the caller trusts.
+- `-registry-rpc URL` — Soroban RPC endpoint for the registry (default: SDF testnet,
+  env `ASSAY_RPC_URL`).
+- `-contract ID` — registry contract ID (default: live deployment, env `ASSAY_CONTRACT_ID`).
+- `-network NAME` — network used to derive the SAC ID (default: `testnet`, env `ASSAY_NETWORK`).
 
-The contract and network come from `ASSAY_CONTRACT_ID` and `ASSAY_NETWORK`,
-with the same defaults as the Makefile. The verdict classes are deliberately
+The contract and network default to `ASSAY_CONTRACT_ID` and `ASSAY_NETWORK` (or the
+compiled defaults: live testnet registry and testnet). The verdict classes are deliberately
 distinct, and each has its own exit code:
 
 | Outcome | Meaning | Exit |
@@ -372,6 +379,10 @@ StellarExpert upstreams from being hammered under Assay's User-Agent:
 
 A refused scan returns `429 Too Many Requests` with a `Retry-After` header
 giving the number of seconds to wait.
+
+Behind a reverse proxy or load balancer, configure `-trusted-proxies CIDR[,CIDR...]`
+so rate limiters key on the real client IP from `X-Forwarded-For` rather than
+the proxy peer. Untrusted peers cannot spoof their bucket via headers. See [api.md](api.md).
 
 ## assay version
 

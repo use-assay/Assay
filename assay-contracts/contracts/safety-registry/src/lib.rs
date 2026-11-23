@@ -864,6 +864,55 @@ impl SafetyRegistry {
         Ok(())
     }
 
+    /// Withdraws a batch of attestations in a single transaction, restoring the
+    /// never-attested state for each asset.
+    ///
+    /// It is admin-only, capped at [`MAX_BATCH_SIZE`], and enforces all-or-nothing
+    /// execution: if any asset in `assets` has no attestation, the call returns
+    /// [`Error::NotAttested`] and nothing is removed.
+    ///
+    /// Empty batches succeed and do nothing. For non-empty batches, one [`Revoked`]
+    /// event is published per asset, and the contract instance TTL is extended.
+    pub fn revoke_many(env: Env, assets: Vec<Address>) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+
+        if assets.len() > MAX_BATCH_SIZE {
+            return Err(Error::BatchTooLarge);
+        }
+
+        // Phase one: validate every element before anything is removed.
+        // If any asset is missing an attestation, return NotAttested and remove nothing.
+        for asset in assets.iter() {
+            let key = DataKey::Safety(asset.clone());
+            if !env.storage().persistent().has(&key) {
+                return Err(Error::NotAttested);
+            }
+        }
+
+        if assets.is_empty() {
+            return Ok(());
+        }
+
+        // Phase two: remove all attestations and publish one Revoked event per asset.
+        let revoked_at = env.ledger().timestamp();
+        for asset in assets.iter() {
+            let key = DataKey::Safety(asset.clone());
+            env.storage().persistent().remove(&key);
+            Revoked {
+                asset: asset.clone(),
+                revoked_at,
+            }
+            .publish(&env);
+        }
+        extend_instance(&env);
+        Ok(())
+    }
+
     /// Reads the attestation for `asset`.
     ///
     /// Returns `None` when the asset has never been attested. That case is

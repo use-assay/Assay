@@ -26,6 +26,35 @@ carry these headers.
 Exposed response headers: `X-Request-Id`, `X-Assay-Undetermined`,
 `Retry-After`.
 
+## Reverse Proxies and Rate Limiting
+
+In public deployments behind a reverse proxy (such as nginx, Caddy, or a cloud load balancer), `r.RemoteAddr` is the IP of the proxy peer. Without proxy awareness, all clients connecting through that proxy share a single rate-limiting bucket.
+
+To key rate limiters on the real client IP, pass `-trusted-proxies CIDR[,CIDR...]` to `assay serve`:
+
+```sh
+assay serve -addr 127.0.0.1:8080 -trusted-proxies 127.0.0.1/32,10.0.0.0/8
+```
+
+When the immediate connecting peer is within a configured trusted CIDR, Assay inspects `X-Forwarded-For` from right to left, skipping trusted intermediate hops, and keys the rate limiter on the first untrusted IP address. If the connecting peer is not in any trusted CIDR, `X-Forwarded-For` is ignored and the peer IP is used directly, preventing untrusted callers from forging their own rate limit bucket. The chosen client key is recorded in structured logs as `client_key`.
+
+### Reverse proxy configuration example (nginx)
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name assay.example.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
 ## Error Bodies
 
 Every error response includes a stable `code` field alongside the

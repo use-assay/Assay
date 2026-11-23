@@ -478,3 +478,53 @@ fn deposit_is_bookkeeping_only_and_increments_internal_balance() {
     f.gate.deposit(&asset, &user, &75);
     assert_eq!(f.gate.balance(&asset, &user), 125);
 }
+
+// ---------------------------------------------------------------------------
+// TTL and archival (#575)
+// ---------------------------------------------------------------------------
+
+use soroban_sdk::testutils::storage::{Instance as _, Persistent as _};
+
+fn max_ttl(env: &Env, client: &ExampleGateClient) -> u32 {
+    env.as_contract(&client.address, || env.storage().max_ttl())
+}
+
+fn instance_ttl(env: &Env, client: &ExampleGateClient) -> u32 {
+    env.as_contract(&client.address, || env.storage().instance().get_ttl())
+}
+
+fn balance_ttl(env: &Env, client: &ExampleGateClient, asset: &Address, holder: &Address) -> u32 {
+    env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .get_ttl(&DataKey::Balance(asset.clone(), holder.clone()))
+    })
+}
+
+/// The constructor extends the contract instance to the network maximum.
+#[test]
+fn constructor_extends_instance_ttl_to_network_max() {
+    let f = setup();
+    let max = max_ttl(&f.env, &f.gate);
+    assert!(
+        max > f.env.ledger().get().min_persistent_entry_ttl,
+        "test is meaningless if max equals default"
+    );
+    assert_eq!(instance_ttl(&f.env, &f.gate), max);
+}
+
+/// deposit extends the instance TTL and the balance entry TTL to the network maximum.
+#[test]
+fn deposit_extends_ttl_to_network_max() {
+    let f = setup();
+    let asset = Address::generate(&f.env);
+    let user = Address::generate(&f.env);
+    f.registry
+        .attest(&asset, &SEVERITY_CLEAR, &0, &hash(&f.env));
+
+    f.gate.deposit(&asset, &user, &100);
+
+    let max = max_ttl(&f.env, &f.gate);
+    assert_eq!(instance_ttl(&f.env, &f.gate), max);
+    assert_eq!(balance_ttl(&f.env, &f.gate, &asset, &user), max);
+}

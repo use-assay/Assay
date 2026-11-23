@@ -166,6 +166,7 @@ impl ExampleGate {
         env.storage()
             .instance()
             .set(&DataKey::RefusedMechanics, &refused_mechanics);
+        extend_instance(&env);
         Ok(())
     }
 
@@ -215,6 +216,8 @@ impl ExampleGate {
         let current: i128 = env.storage().persistent().get(&key).unwrap_or(0);
         let new_balance = current.checked_add(amount).ok_or(Error::BalanceOverflow)?;
         env.storage().persistent().set(&key, &new_balance);
+        extend_balance(&env, &key);
+        extend_instance(&env);
         Ok(())
     }
 
@@ -295,6 +298,20 @@ impl ExampleGate {
             PolicyViolation::IssuerCanTakeIt => Error::IssuerCanTakeIt,
         })
     }
+}
+
+/// Extends the contract instance's TTL to the network maximum. Extending the
+/// instance also extends the contract code entry, so the configuration and the
+/// wasm stay live as long as the gate is being written to.
+fn extend_instance(env: &Env) {
+    let max = env.storage().max_ttl();
+    env.storage().instance().extend_ttl(max, max);
+}
+
+/// Extends one balance entry's TTL to the network maximum.
+fn extend_balance(env: &Env, key: &DataKey) {
+    let max = env.storage().max_ttl();
+    env.storage().persistent().extend_ttl(key, max, max);
 }
 
 #[cfg(test)]

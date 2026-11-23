@@ -64,6 +64,9 @@ pub enum Quorum {
     /// Enough attestors responded but they disagree on severity or flags. The
     /// payload is the responding count.
     Contested(u32),
+    /// Malformed call: threshold == 0, threshold > distinct attestors, or more
+    /// than MAX_ATTESTORS.
+    InvalidArguments,
 }
 
 /// The registry's read-only interface.
