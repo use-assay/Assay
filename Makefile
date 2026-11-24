@@ -19,7 +19,7 @@ SOURCE ?= assay-attester
 CONTRACT_ID ?= CBK4FBIHMDTXCUPE4E3ZDVSFJSCY5FJETTKNIQPN4LFJIKKIBLKIXQ73
 STELLAR_CLI_VERSION := 27.1.0
 
-.PHONY: help doctor all build build-release test test-notify test-preimage test-reproducibility test-stellar-cli-version cover lint fmt vet run clean \
+.PHONY: help doctor all build build-release test test-notify test-preimage test-reproducibility test-stellar-cli-version check-translations test-check-translations cover lint fmt vet run clean \
 	offline-test e2e-standalone \
 	contract-test contract-lint contract-build wasm-size \n	build-contract deploy-testnet attest reattest test-reattest-corpus test-multisig-admin-plan read check-stellar-cli-version verify-gate verify-wasm \n	eval-record eval-compare
 
@@ -80,6 +80,17 @@ test-attest-run: ## Verify the attestation runner
 # test-stellar-cli-version exercises the Makefile preflight with a stub CLI.
 test-stellar-cli-version: ## Verify Stellar CLI version checks
 	bash ./scripts/test-stellar-cli-version.sh
+
+# check-translations lists translations under docs/i18n/ that have fallen behind
+# their English source and fails when docs/i18n/README.md and a translation's
+# note disagree. It reads git history, so it needs a full (non-shallow) clone.
+check-translations: ## Report stale translations under docs/i18n/
+	bash ./scripts/check-translations.sh
+
+# test-check-translations exercises scripts/check-translations.sh against a
+# throwaway git repository. No network.
+test-check-translations: ## Test the stale-translation check
+	bash ./scripts/test-check-translations.sh
 
 # test-preimage runs the independent Python encoder (written from
 # docs/contract-interface.md alone) against the Go encoder over every committed

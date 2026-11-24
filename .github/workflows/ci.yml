@@ -307,6 +307,32 @@ jobs:
       - name: lint shell scripts
         run: find . -type f \( -name '*.sh' -o -name '*.bash' \) -not -path './.git/*' -print0 | xargs -0 shellcheck -S warning
 
+  # Translations under docs/i18n/ record the English commit they were made
+  # from. This job lists any that have fallen behind (a warning annotation on
+  # a PR that touches its English source) and fails when docs/i18n/README.md
+  # and a translation's own note disagree. It reads history back to the
+  # recorded commit, so this job alone checks out with fetch-depth: 0.
+  translations:
+    name: Translations
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: test the translation check
+        run: make test-check-translations
+
+      - name: check translations
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ -n "$BASE_REF" ]; then
+            ./scripts/check-translations.sh --changed-since "origin/$BASE_REF"
+          else
+            ./scripts/check-translations.sh
+          fi
+
   contract:
     name: Soroban contract
     runs-on: ubuntu-latest

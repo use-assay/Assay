@@ -19,12 +19,37 @@ the translation. A translation is **stale** when the English source has changed
 since the recorded commit; the note says so explicitly rather than implying
 that an old translation still describes the current code.
 
+## Checking for stale translations
+
+`scripts/check-translations.sh` (`make check-translations`) computes what the
+paragraph above promises. For each row of the table it:
+
+- fails when the translated file is missing, is not in the table, or its note
+  names a different source, section or source commit than the table;
+- fails when the recorded commit does not resolve — in CI that means a shallow
+  checkout, which is why the `Translations` job uses `fetch-depth: 0`;
+- counts the commits since the recorded commit that changed the English
+  source and lists every translation that is behind, with that count. For
+  `README.md` → "Status" only the text of that section is compared at each
+  commit, so a change elsewhere in the README does not make it stale.
+
+Staleness is a warning, not a failure: an English fix is never blocked on a
+translator. In CI a stale translation becomes a warning annotation on a pull
+request that touches its English source (`--changed-since origin/<base>`);
+the table and note disagreeing fails the job.
+
+```sh
+./scripts/check-translations.sh
+make test-check-translations   # the script's own tests, against a scratch repository
+```
+
 ## Updating a translation
 
 1. Read the current English document and the recorded source commit.
 2. Translate the changed sections. Do not change code, commands, identifiers,
    URLs, issue numbers or quoted output.
-3. Update the `Source commit` note in the translated file and the table above.
+3. Update the `Source commit` note in the translated file and the table above
+   to the same commit, then run `./scripts/check-translations.sh`.
 4. Leave the English document unchanged unless the change itself is a
    correction; a translation must not become a second source of truth.
 
