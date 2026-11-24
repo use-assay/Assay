@@ -208,7 +208,9 @@ func OpenWithLimits(path string, n, m int) (_ *Store, err error) {
 		if err := json.Unmarshal(line, &rec); err != nil {
 			return nil, fmt.Errorf("history: decode %s: %w", path, err)
 		}
-		if rec.Version != logVersion {
+		// v1 records have no Evidence field; it stays nil after decode, which
+		// is treated as an empty slice by observation(). v2+ records carry it.
+		if rec.Version != logVersion && rec.Version != 1 {
 			return nil, fmt.Errorf("history: decode %s: unsupported log record version %d, want %d",
 				path, rec.Version, logVersion)
 		}
@@ -414,7 +416,12 @@ func (s *Store) persistLocked() error {
 // stored shape cannot be read as if it were this one. It is the same reasoning
 // as the evidence preimage's version line: a format a verifier reads has to
 // carry the format it is.
-const logVersion = 1
+//
+// Version history:
+//   - v1: asset, at, mechanics, severities, accountability, undetermined flags.
+//     Evidence was not persisted; reloaded observations have an empty slice.
+//   - v2: adds the evidence slice so EvidenceTransition survives a restart.
+const logVersion = 2
 
 // logRecord is the persisted shape of one observation.
 //
@@ -424,9 +431,8 @@ const logVersion = 1
 // built from. Keeping the two apart means a change to how severity is
 // displayed cannot silently change what the log contains, and it keeps the log
 // independent of mechanics.Severity having a symmetric JSON encoding.
-// Accountability is optional in old logs: a record written before the field
-// existed decodes with an empty value rather than failing to load, which keeps
-// existing histories readable without a version bump.
+// Accountability and Evidence are omitempty so a record written before those
+// fields existed decodes with empty values rather than failing to load.
 type logRecord struct {
 	Version            int                      `json:"v"`
 	Asset              mechanics.Asset          `json:"asset"`
@@ -435,6 +441,7 @@ type logRecord struct {
 	BaseSeverity       uint32                   `json:"base_severity"`
 	Severity           uint32                   `json:"severity"`
 	Accountability     mechanics.Accountability `json:"accountability,omitempty"`
+	Evidence           []mechanics.Evidence     `json:"evidence,omitempty"`
 	Undetermined       bool                     `json:"undetermined"`
 	UndeterminedChecks []string                 `json:"undetermined_checks,omitempty"`
 }
@@ -448,6 +455,7 @@ func record(o temporal.Observation) logRecord {
 		BaseSeverity:       uint32(o.Base),
 		Severity:           uint32(o.Severity),
 		Accountability:     o.Accountability,
+		Evidence:           append([]mechanics.Evidence{}, o.Evidence...),
 		Undetermined:       o.Undetermined,
 		UndeterminedChecks: append([]string{}, o.UndeterminedChecks...),
 	}
@@ -461,6 +469,7 @@ func (r logRecord) observation() temporal.Observation {
 		Base:               mechanics.Severity(r.BaseSeverity),
 		Severity:           mechanics.Severity(r.Severity),
 		Accountability:     r.Accountability,
+		Evidence:           append([]mechanics.Evidence{}, r.Evidence...),
 		Undetermined:       r.Undetermined,
 		UndeterminedChecks: append([]string{}, r.UndeterminedChecks...),
 	}
