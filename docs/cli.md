@@ -384,13 +384,16 @@ sep1-domain	Checks whether the issuer's advertised home_domain publishes a stell
 
 Serves the HTTP API and UI. The API exposes the same reports the CLI prints;
 see `docs/integrating.md` for what a consumer reads out of it, and
-[history.md](history.md) for the observation history endpoint.
+[history.md](history.md) for the observation history endpoint. **Running an
+instance** — the full flag table, where state lives and how to back it up,
+which probe to wire to what, metrics, rate limits, a reverse-proxy example and
+a hardened systemd unit — is covered in [serving.md](serving.md).
 
 ```
 ./assay serve -addr :8080
 ./assay serve -addr :8080 -history /var/lib/assay/history.jsonl
 ./assay serve -addr :8080 -history /var/lib/assay/history.jsonl -history-retention 1024
-./assay serve -addr :8080 -scan-rate 10 -scan-burst 20
+./assay serve -addr 127.0.0.1:8080 -trusted-proxies 127.0.0.1/32 -attested attested.json
 ```
 
 Each successful `GET /api/v1/scan` records an observation, and
@@ -404,20 +407,12 @@ policy is in [history.md](history.md).
 
 **Rate limiting.** `GET /api/v1/exposure` is always rate-limited (default: 5
 requests burst, 1 per second per client address) because one request fans out
-to a full scan per asset. `GET /api/v1/scan` is **not rate-limited by default**
-so local and development use works without configuration. For public deployments
-set `-scan-rate` and `-scan-burst` to protect the shared Horizon and
-StellarExpert upstreams from being hammered under Assay's User-Agent:
-
-```
--scan-burst N  initial burst of N scan requests allowed per client address
-               (default: 0, off)
--scan-rate F   token-bucket refill rate in requests/second per client address
-               (requires -scan-burst; default: 0, off)
-```
-
-A refused scan returns `429 Too Many Requests` with a `Retry-After` header
-giving the number of seconds to wait.
+to a full scan per asset; a refused request returns `429 Too Many Requests`
+with a `Retry-After` header. `GET /api/v1/scan` is **not rate-limited** by
+`assay serve`, so local and development use works without configuration. A
+public deployment must limit it at the reverse proxy to protect the shared
+Horizon and StellarExpert upstreams; [serving.md](serving.md#reverse-proxy) has
+an example.
 
 Behind a reverse proxy or load balancer, configure `-trusted-proxies CIDR[,CIDR...]`
 so rate limiters key on the real client IP from `X-Forwarded-For` rather than

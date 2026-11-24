@@ -307,6 +307,27 @@ jobs:
       - name: lint shell scripts
         run: find . -type f \( -name '*.sh' -o -name '*.bash' \) -not -path './.git/*' -print0 | xargs -0 shellcheck -S warning
 
+  # examples/systemd/assay.service is documented in docs/serving.md as passing
+  # systemd-analyze verify; this job keeps that claim true. verify checks that
+  # ExecStart's binary exists, so the job builds and installs it first.
+  systemd-unit:
+    name: systemd unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: build and install assay
+        run: |
+          go build -o assay ./cmd/assay
+          sudo install -m 0755 assay /usr/local/bin/assay
+      - name: systemd-analyze verify
+        run: |
+          sudo install -m 0644 examples/systemd/assay.service /etc/systemd/system/assay.service
+          sudo systemd-analyze verify /etc/systemd/system/assay.service
+
   # Translations under docs/i18n/ record the English commit they were made
   # from. This job lists any that have fallen behind (a warning annotation on
   # a PR that touches its English source) and fails when docs/i18n/README.md

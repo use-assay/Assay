@@ -1,0 +1,74 @@
+# Hardened systemd unit for `assay serve`. See docs/serving.md.
+#
+# Install the binary at /usr/local/bin/assay, copy this file to
+# /etc/systemd/system/assay.service, then:
+#   systemd-analyze verify /etc/systemd/system/assay.service
+#   systemctl daemon-reload && systemctl enable --now assay
+#
+# Add flags with `systemctl edit assay`: an empty `ExecStart=` line, then a
+# new `ExecStart=` with the full command.
+
+[Unit]
+Description=Assay HTTP API (assay serve)
+Documentation=https://github.com/use-assay/Assay/blob/main/docs/serving.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+# Bound to loopback: a reverse proxy terminates TLS in front of it and is named
+# in -trusted-proxies so rate limits key on the real client.
+# %S is the state root (/var/lib); StateDirectory= below creates %S/assay.
+ExecStart=/usr/local/bin/assay serve \
+    -addr 127.0.0.1:8080 \
+    -trusted-proxies 127.0.0.1/32 \
+    -history %S/assay/history.jsonl
+# SIGTERM starts a graceful shutdown with a 10s drain; allow a little more.
+KillSignal=SIGTERM
+TimeoutStopSec=15s
+Restart=on-failure
+RestartSec=5s
+
+# Identity and state.
+DynamicUser=yes
+StateDirectory=assay
+StateDirectoryMode=0700
+UMask=0077
+
+# Filesystem.
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+
+# Privileges.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RemoveIPC=yes
+
+# Network: IP for clients and upstreams (Horizon, StellarExpert, Soroban RPC),
+# Unix sockets for the resolver.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+# System calls.
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

@@ -71,6 +71,7 @@ Call `get_safety`, run the binary, consume the API.
 | [docs/checks.md](docs/checks.md) | Each mechanic Assay checks, and what it can and cannot conclude |
 | [docs/cli.md](docs/cli.md) | The `assay` binary: scan, attestation, verify, diff, history, serve |
 | [docs/api.md](docs/api.md) | Every HTTP endpoint, and the JSON each one returns |
+| [docs/serving.md](docs/serving.md) | Operating `assay serve`: flags, history state and backups, probes, metrics, rate limits, reverse proxy, hardened systemd unit |
 | [docs/api-versioning.md](docs/api-versioning.md) | What `/api/v1` guarantees: additive vs breaking changes and the deprecation process |
 | [docs/caching.md](docs/caching.md) | How the scanner caches the signals it consumes (StellarExpert directory and blocklist), and for how long |
 | [docs/asset-lists.md](docs/asset-lists.md) | Consuming SEP-0042 Stellar Asset Lists as a second curation source, and why listing is never a safety signal |

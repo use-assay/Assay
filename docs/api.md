@@ -158,10 +158,11 @@ Status codes:
 - `400 Bad Request`: invalid asset code or issuer, missing `?asset=`, or an
   identifier naming the native asset — see above.
 - `404 Not Found`: asset not found on the ledger.
-- `429 Too Many Requests`: scan rate limit exceeded (only when configured via
-  `--scan-rate`; not applied by default). `Retry-After` gives the wait in
-  seconds. Public deployments should configure this to protect the shared
-  Horizon and StellarExpert upstreams.
+- `429 Too Many Requests`: scan rate limit exceeded (only when the embedding
+  program sets `Server.ScanLimiter`; `assay serve` does not). `Retry-After`
+  gives the wait in seconds. Public deployments of `assay serve` should limit
+  this endpoint at the reverse proxy to protect the shared Horizon and
+  StellarExpert upstreams ([serving.md](serving.md#rate-limits)).
 - `502 Bad Gateway`: the scan failed on an underlying network or upstream
   error; the message names the failing source.
 

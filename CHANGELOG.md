@@ -124,6 +124,21 @@ matching section — see [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## CLI and HTTP API
 
+- **2026-11-24 — registry staleness from `serve`, whole-sequence history,
+  and an operator guide.** `assay serve -attested FILE [-registry-rpc URL]
+  [-staleness-window D]` wires `/readyz`'s `registry_staleness` to a real
+  attested set; without the flag the response is unchanged, and a bad file
+  reports `unknown` with the parse error
+  ([#576](https://github.com/use-assay/Assay/issues/576)). `temporal.All`
+  and `temporal.Summarize` compare every adjacent observation and name every
+  capability held at any point; `assay history -server` prints one derived
+  transition per observation and the summary on stderr, and now decodes the
+  server's observations in their real shape
+  ([#599](https://github.com/use-assay/Assay/issues/599)).
+  [`docs/serving.md`](docs/serving.md) and `examples/systemd/assay.service`
+  document running an instance, and `docs/cli.md`/`docs/api.md` no longer
+  name `-scan-rate`/`-scan-burst`, which `serve` never had
+  ([#600](https://github.com/use-assay/Assay/issues/600)).
 - **2026-11-21 — bounded history pages, a global store bound, and typed
   de-escalation.** `/api/v1/history` takes `limit`/`before` and returns
   `limit` and `next_before`, with the transition at a page boundary still
