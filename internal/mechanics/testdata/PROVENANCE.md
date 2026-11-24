@@ -59,6 +59,16 @@ and the expected verdict.
 | `usdz-clawback-regulated/directory.json` | https://api.stellar.expert/explorer/directory/GAKTLPC4ZV37SSCITQ5IS5AQ4WPF4CF4VZJQPPAROSGXMYOATF5U6XPR (captured 2026-09-27) |
 | `synthetic-reputation-outage/*` | Not captured. Payload files are copies of `aqua-clear-verified` (2026-08-10); `blocked.err` is a constructed error marker (HTTP 429) added 2026-09-27 — see that directory's README. |
 | `synthetic-redirect-off-host/*` | Not captured. Payload files based on `aqua-clear-verified` (2026-08-10); `stellar.toml.err` records the cross-host redirect refusal error from redirect.example to other.example (added 2026-10-16, #380) — see that directory's README. |
+| `synthetic-auth-required-gating/asset.json` | https://horizon.stellar.org/assets?asset_code=AQUA&asset_issuer=GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA — synthetic: derived from aqua-clear-verified with auth_required=true (#376) |
+| `synthetic-auth-required-gating/account.json` | https://horizon.stellar.org/accounts/GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA — synthetic: auth_required=true (#376) |
+| `synthetic-auth-required-gating/stellar.toml` | https://aqua.network/.well-known/stellar.toml (copied from aqua-clear-verified, 2026-08-10, #376) |
+| `synthetic-auth-required-gating/blocked.json` | https://api.stellar.expert/explorer/directory/blocked-domains/aqua.network (copied from aqua-clear-verified, 2026-08-10, #376) |
+| `synthetic-auth-required-gating/directory.json` | https://api.stellar.expert/explorer/directory/GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA (copied from aqua-clear-verified, 2026-08-10, #376) |
+| `synthetic-code-claimed-different-issuer/asset.json` | https://horizon.stellar.org/assets?asset_code=AQUA&asset_issuer=GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA — synthetic: home_domain set to impersonation.example (#379) |
+| `synthetic-code-claimed-different-issuer/account.json` | https://horizon.stellar.org/accounts/GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA — synthetic: home_domain impersonation.example (#379) |
+| `synthetic-code-claimed-different-issuer/stellar.toml` | https://impersonation.example/.well-known/stellar.toml — constructed: claims AQUA code under wrong issuer GDSTRSHXHGJ7ZIVRBXEYE5Q74XUVCUSEKEBR7UCHEUUEK72N7I7KJ6JH (2026-11-22, #379) |
+| `synthetic-code-claimed-different-issuer/blocked.json` | https://api.stellar.expert/explorer/directory/blocked-domains/impersonation.example — constructed synthetic payload (2026-11-22, #379) |
+| `synthetic-code-claimed-different-issuer/directory.json` | https://api.stellar.expert/explorer/directory/GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA — constructed: domain set to impersonation.example so it agrees with home_domain (2026-11-22, #379) |
 
 `doge-reputation-outage` is the same real asset as `doge-noflags-scam`, captured
 for the case where a source failed. Its `directory.err` is a deliberate marker,

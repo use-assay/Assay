@@ -136,6 +136,11 @@ func TestSequencesProduceExpectedTransitions(t *testing.T) {
 		baseBefore, baseAfter         mechanics.Severity
 		severityBefore, severityAfter mechanics.Severity
 
+		// deescalation is whether the pair must emit a typed de-escalation,
+		// and deescalationSources are the sources it must name.
+		deescalation        bool
+		deescalationSources []string
+
 		accountabilityFrom, accountabilityTo mechanics.Accountability
 		accountabilityChanged                bool
 
@@ -214,6 +219,22 @@ func TestSequencesProduceExpectedTransitions(t *testing.T) {
 
 			mechanicsMoved: true,
 			reasonContains: "reputation",
+		},
+		{
+			dir:   "seq7-withdrawn-listing",
+			why:   "a curated listing was withdrawn: final severity falls and the transition names the source",
+			state: temporal.Valid,
+
+			added:       0,
+			attribution: temporal.AttributionReputation,
+
+			baseBefore: mechanics.Clear, baseAfter: mechanics.Clear,
+			severityBefore: mechanics.Critical, severityAfter: mechanics.Clear,
+
+			deescalation:        true,
+			deescalationSources: []string{"stellar.expert/directory"},
+
+			mechanicsMoved: true,
 		},
 		{
 			dir:   "seq6-accountability-change",
@@ -316,6 +337,9 @@ func TestSequencesProduceExpectedTransitions(t *testing.T) {
 				if sev.BaseBefore != 0 || sev.BaseAfter != 0 || sev.Before != 0 || sev.After != 0 {
 					t.Errorf("a %q transition reported a severity movement: %+v", tc.state, sev)
 				}
+				if sev.Deescalation != nil {
+					t.Errorf("a %q transition reported a de-escalation: %+v", tc.state, sev.Deescalation)
+				}
 				return
 			}
 			if sev.BaseBefore != tc.baseBefore || sev.BaseAfter != tc.baseAfter {
@@ -325,6 +349,31 @@ func TestSequencesProduceExpectedTransitions(t *testing.T) {
 			if sev.Before != tc.severityBefore || sev.After != tc.severityAfter {
 				t.Errorf("severity = %v -> %v, want %v -> %v",
 					sev.Before, sev.After, tc.severityBefore, tc.severityAfter)
+			}
+
+			// A severity decrease is typed and attributed, exactly when it
+			// happened. The transition and the standalone severity detector
+			// must agree, or one surface would report a fall the other hides.
+			if got := sev.Deescalation != nil; got != tc.deescalation {
+				t.Errorf("deescalation present = %t, want %t", got, tc.deescalation)
+			}
+			if tr.Deescalation != nil || sev.Deescalation != nil {
+				if tr.Deescalation == nil || sev.Deescalation == nil {
+					t.Fatalf("transition and severity detector disagree on de-escalation: %v vs %v",
+						tr.Deescalation, sev.Deescalation)
+				}
+				if !slices.Equal(sev.Deescalation.Sources, tc.deescalationSources) {
+					t.Errorf("deescalation sources = %v, want %v",
+						sev.Deescalation.Sources, tc.deescalationSources)
+				}
+				if sev.Deescalation.From != tc.severityBefore || sev.Deescalation.To != tc.severityAfter {
+					t.Errorf("deescalation %v -> %v, want %v -> %v",
+						sev.Deescalation.From, sev.Deescalation.To,
+						tc.severityBefore, tc.severityAfter)
+				}
+				if sev.Deescalation.Reason == "" {
+					t.Error("a de-escalation must say why, or it is indistinguishable from a silent downgrade")
+				}
 			}
 		})
 	}

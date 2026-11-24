@@ -28,6 +28,16 @@
 //     observation is the one a consumer is least likely to need. The cap is
 //     reported in every API response, so a history that has reached it is
 //     visible to a consumer rather than passing as complete.
+//
+//   - The store is bounded globally as well as per asset. A per-asset cap
+//     alone bounds nothing in aggregate: every distinct asset scanned through
+//     the public API adds up to DefaultRetention records and the whole file is
+//     rewritten on each append, so an instance could be driven to an
+//     arbitrarily large file and O(n) write cost by scanning many assets. The
+//     number of assets kept is capped (DefaultMaxAssets) and the asset whose
+//     observations are least recent is evicted whole, which keeps every
+//     retained asset's per-asset history intact. Both bounds are reported in
+//     every API response. See docs/history.md.
 package history
 
 import (
@@ -54,6 +64,25 @@ import (
 // more than this many observations exist for one asset, the oldest are dropped.
 const DefaultRetention = 256
 
+// DefaultMaxAssets is the greatest number of assets the store keeps
+// observations for.
+//
+// It exists so the log file has a global bound, not only a per-asset one: with
+// DefaultRetention observations per asset, the log can therefore never exceed
+// DefaultMaxAssets × DefaultRetention records. Eviction is whole-asset and
+// oldest-observed-first — the asset whose most recent observation is oldest is
+// dropped, so an asset being scanned now is never the one evicted by a burst of
+// new assets. It is deliberately generous relative to the ~20 assets Assay has
+// ever scanned, and, like DefaultRetention, it is a bound against unbounded
+// growth rather than a space-saving choice.
+//
+// An evicted asset's history reads as `missing`, exactly like an asset that was
+// never scanned. That is why the bound is reported in every response: a
+// consumer of a deployment that has reached the cap must read `missing` as
+// "not retained" rather than "never observed". docs/history.md records the
+// consequences.
+const DefaultMaxAssets = 512
+
 var (
 	// ErrLocked reports that another process already holds the history's
 	// single-writer lock. Callers can match it with errors.Is to turn startup
@@ -73,6 +102,7 @@ type Store struct {
 	byAsset   map[string][]temporal.Observation
 	path      string
 	retention int
+	maxAssets int
 	lock      *os.File
 	closed    bool
 }
@@ -88,10 +118,24 @@ func New() *Store { return NewWithRetention(DefaultRetention) }
 // "keep nothing", because silently retaining nothing would present as a
 // permanently empty history.
 func NewWithRetention(n int) *Store {
+	return NewWithLimits(n, DefaultMaxAssets)
+}
+
+// NewWithLimits returns an in-memory Store bounded to n observations per asset
+// and m assets overall. A non-positive n or m is replaced by its default rather
+// than treated as "keep nothing", for the same reason NewWithRetention gives.
+func NewWithLimits(n, m int) *Store {
 	if n <= 0 {
 		n = DefaultRetention
 	}
-	return &Store{byAsset: map[string][]temporal.Observation{}, retention: n}
+	if m <= 0 {
+		m = DefaultMaxAssets
+	}
+	return &Store{
+		byAsset:   map[string][]temporal.Observation{},
+		retention: n,
+		maxAssets: m,
+	}
 }
 
 // Open returns a Store persisted to path as a JSON Lines log, loading whatever
@@ -111,8 +155,16 @@ func Open(path string) (*Store, error) {
 
 // OpenWithRetention is Open with an explicit per-asset retention bound, for a
 // deployment that wants a different one than DefaultRetention.
-func OpenWithRetention(path string, n int) (_ *Store, err error) {
-	s := NewWithRetention(n)
+func OpenWithRetention(path string, n int) (*Store, error) {
+	return OpenWithLimits(path, n, DefaultMaxAssets)
+}
+
+// OpenWithLimits is Open with explicit per-asset and global bounds, for a
+// deployment that wants different ones than the defaults. The global bound is
+// applied while loading, so a log written under a larger bound is rewritten to
+// the smaller retained set on the next append.
+func OpenWithLimits(path string, n, m int) (_ *Store, err error) {
+	s := NewWithLimits(n, m)
 	s.path = path
 	if path == "" {
 		return s, nil
@@ -244,6 +296,23 @@ func (s *Store) RetentionLimit() int {
 	return s.retention
 }
 
+// MaxAssets reports the global cap on assets this store keeps, so an API
+// response can state the bound the whole retained history is read against.
+func (s *Store) MaxAssets() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.maxAssets
+}
+
+// AssetCount reports how many assets the store currently retains. It is the
+// observable side of the global bound, used by tests and by an operator
+// checking that a file has not grown past its cap.
+func (s *Store) AssetCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.byAsset)
+}
+
 // insertLocked adds one observation and re-applies the retention bound. The
 // caller holds s.mu.
 func (s *Store) insertLocked(o temporal.Observation) {
@@ -258,6 +327,31 @@ func (s *Store) insertLocked(o temporal.Observation) {
 		list = list[len(list)-s.retention:]
 	}
 	s.byAsset[key] = list
+	s.evictAssetsLocked()
+}
+
+// evictAssetsLocked enforces the global asset bound. The caller holds s.mu.
+//
+// The asset whose newest observation is oldest is dropped whole, which is the
+// global analogue of dropping a per-asset observation: the least recently
+// observed asset is the one a consumer is least likely to ask about, and the
+// assets still being scanned keep their full per-asset history. Ties are broken
+// by asset key so eviction cannot depend on Go's map iteration order. An asset
+// is never left half-evicted, because a partial history would read as complete.
+func (s *Store) evictAssetsLocked() {
+	for len(s.byAsset) > s.maxAssets {
+		oldestKey := ""
+		var oldestAt time.Time
+		for key, list := range s.byAsset {
+			// Lists are never empty: insertLocked appends before calling here.
+			latest := list[len(list)-1].At
+			if oldestKey == "" || latest.Before(oldestAt) ||
+				(latest.Equal(oldestAt) && key < oldestKey) {
+				oldestKey, oldestAt = key, latest
+			}
+		}
+		delete(s.byAsset, oldestKey)
+	}
 }
 
 // persistLocked rewrites the log from the retained set. The caller holds s.mu.

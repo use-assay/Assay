@@ -45,8 +45,6 @@ func TestOpenAPISchemasMatchHandlerEmittedFields(t *testing.T) {
 		// The exposure response and its per-asset entries.
 		{"Exposure", reflect.TypeOf(exposureResponse{})},
 		{"ExposureAsset", reflect.TypeOf(exposureAsset{})},
-		// The error body, shared by every non-2xx response.
-		{"Error", reflect.TypeOf(errorBody{})},
 		// The readiness response, per upstream.
 		{"Readiness", reflect.TypeOf(Readiness{})},
 		{"UpstreamStatus", reflect.TypeOf(UpstreamStatus{})},

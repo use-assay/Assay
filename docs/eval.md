@@ -39,6 +39,8 @@ with provenance recorded in
 | `DOGE` (reputation outage) | **degraded** | The same real scam as the row above, captured with the StellarExpert directory unavailable. Neither legitimate nor trap: the correct answer is **undetermined**, and the subject exists so a source outage can never again be reported as a clean result (issue #23). |
 | `VELO` (no domain) | legitimate | An issuer account with no `home_domain` at all — the field is absent from the ledger record. Nothing was ever claimed, so accountability must be `unknown` rather than `unverified`, and severity must stay `clear` (#3). |
 | `synthetic-redirect-off-host` | **synthetic** | A home_domain whose stellar.toml redirects to an unrelated host, which the redirect rule refuses. The eval pins that accountability is unverified and the report names the refused host (#380). |
+| `synthetic-auth-required-gating` | **synthetic** | The issuer uses `auth_required` to gate trustlines. Base severity is `low` from the flag alone; domain verification still passes, so accountability is `verified`. Closes the coverage gap noted in this document (#376). |
+| `synthetic-code-claimed-different-issuer` | **synthetic** | The issuer's home_domain publishes a stellar.toml that claims the same asset code under a different issuer. The reciprocity rule refuses the code-only match and accountability is `unverified` (#379). |
 
 ## Subject metadata
 
@@ -75,6 +77,13 @@ Corpus membership itself — the list of subject directories — lives in
 `subjectDirs` in [`internal/eval/corpus.go`](../internal/eval/corpus.go); a
 directory with metadata that is not in the list is not a labelled subject.
 
+Every directory under `internal/mechanics/testdata` must be either a labelled
+subject or an entry in `manifest.json`'s `regression_fixtures` list, which gives
+regression-only fixtures an explicit purpose. `internal/fixtures` test coverage
+rejects unaccounted directories, field drift between a subject's manifest entry
+and `metadata.json`, and missing provenance matches. This keeps the dataset
+index, eval labels, and human provenance index synchronized.
+
 Two other machine-readable records sit beside these files and are unchanged:
 `manifest.json` is the dataset card (licence, labels, one capture date per
 subject), and [`PROVENANCE.md`](../internal/mechanics/testdata/PROVENANCE.md)
@@ -98,6 +107,8 @@ row on each test run, so the table cannot drift from the code without a red test
 | doge-reputation-outage | `DOGE` | clear | **clear** | false | **true** | unverified | `domain_unverified` |
 | velo-no-home-domain | `VELO` | clear | **clear** | false | **true** | unknown | `domain_unverified` |
 | synthetic-redirect-off-host | `SYNTHETIC` | clear | **clear** | false | false | unverified | `domain_unverified` |
+| synthetic-auth-required-gating | `SYNTHETIC` | low | **low** | false | false | verified | `auth_required` |
+| synthetic-code-claimed-different-issuer | `SYNTHETIC` | clear | **clear** | false | false | unverified | `domain_unverified` |
 
 The `doge-reputation-outage` row is the point of the `Undetermined` column: its
 severity is the capability floor, exactly as if nothing were wrong, and the
@@ -448,11 +459,11 @@ below.
 
 Stated plainly, because an eval that hides its gaps is marketing.
 
-- **Ten subjects, eight assets.** Enough to pin the judgment boundaries, not
+- **Twelve subjects, eight assets.** Enough to pin the judgment boundaries, not
   enough for a statistical claim. No precision/recall numbers are quoted,
-  because ten subjects cannot support them. (`DOGE` appears twice: once as
-  the live trap, once as the reputation-outage variant; `synthetic-redirect-off-host`
-  is a synthetic fixture for redirect policy refusal.)
+  because twelve subjects cannot support them. (`DOGE` appears twice: once as
+  the live trap, once as the reputation-outage variant; `synthetic-*` are
+  synthetic fixtures for specific edge cases.)
 - **~~No legitimately-clawback-enabled asset~~ Closed 2026-09-27.**
   `USDZ-GAKTLPC4ZV37SSCITQ5IS5AQ4WPF4CF4VZJQPPAROSGXMYOATF5U6XPR` (Zeam Money)
   is now in the set as `usdz-clawback-regulated`: clawback-capable, reciprocal
@@ -462,10 +473,18 @@ Stated plainly, because an eval that hides its gaps is marketing.
   measurement the model's central claim rests on. Fixture provenance and the
   independent-verification evidence are in
   [`internal/mechanics/testdata/PROVENANCE.md`](../internal/mechanics/testdata/PROVENANCE.md).
-- **Trap coverage still narrow.** The set has no subject exercising
-  `auth_required` as a gating mechanism, and no subject with all four
-  authorization flags set. Adding those needs live traps that actually
-  exhibit those shapes; the two current traps (`BERKSHIRE`, `DOGE`) do not.
+- **~~auth_required gating~~ Closed 2026-11-22.** `synthetic-auth-required-gating`
+  is now in the set: `auth_required` only, verified domain, clean reputation.
+  Base severity is `low` from the flag alone, and accountability is `verified`.
+  Labelled synthetic; see that directory's README for why a live subject was not
+  used (#376).
+- **~~No reciprocal-claim impersonation case~~ Closed 2026-11-22.**
+  `synthetic-code-claimed-different-issuer` is now in the set: the issuer's
+  home_domain publishes a toml that claims the same asset code under a
+  different issuer. The reciprocity rule refuses the code-only match and
+  accountability is `unverified` (#379).
+- **Trap coverage still narrow.** No subject with all four authorization flags
+  set. Adding that needs a live or synthetic fixture with all four set at once.
 - **No frozen-trustline case.** Nothing exercises assets with unauthorized
   trustlines, where a freeze has actually been used rather than merely enabled.
 - **Fixtures are a snapshot.** Issuers can change flags. Fixtures pin the

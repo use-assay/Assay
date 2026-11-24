@@ -152,6 +152,13 @@ type Transition struct {
 	SeverityAfter  mechanics.Severity `json:"severity_after"`
 	// Attribution names which axis moved severity, if any.
 	Attribution Attribution `json:"attribution"`
+	// Deescalation is set exactly when final severity fell between the two
+	// observations. It is the typed, attributed form of a severity decrease:
+	// it names the source whose claim was withdrawn, so a consumer does not
+	// have to diff evidence by hand to see why an asset came down. Absent means
+	// severity did not fall, not that the comparison could not be made (State
+	// says that). See Deescalation.
+	Deescalation *Deescalation `json:"deescalation,omitempty"`
 
 	// Accountability is the change in who publicly claims the asset, independent
 	// of severity. It carries from/to values and the same State as the pair, so
@@ -203,6 +210,7 @@ func Between(from, to Observation) Transition {
 	t.BaseBefore, t.BaseAfter = t.From.Base, t.To.Base
 	t.SeverityBefore, t.SeverityAfter = t.From.Severity, t.To.Severity
 	t.Attribution = attribution(t.From, t.To)
+	t.Deescalation = deescalation(t)
 	return finish(t)
 }
 

@@ -40,6 +40,9 @@ type SeverityMovement struct {
 	State       State       `json:"state"`
 	// Reason explains a non-Valid state in plain language.
 	Reason string `json:"reason,omitempty"`
+	// Deescalation is set when the final severity fell, naming the source that
+	// withdrew the claim behind it. It is nil when severity held or rose.
+	Deescalation *Deescalation `json:"deescalation,omitempty"`
 }
 
 // SeverityTransition reports how severity and base severity moved between two
@@ -60,6 +63,7 @@ func SeverityTransition(from, to Observation) SeverityMovement {
 	m.BaseBefore, m.BaseAfter = t.BaseBefore, t.BaseAfter
 	m.Before, m.After = t.SeverityBefore, t.SeverityAfter
 	m.Attribution = t.Attribution
+	m.Deescalation = t.Deescalation
 	return m
 }
 

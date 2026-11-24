@@ -1,0 +1,11 @@
+NETWORK_PASSPHRASE = "Public Global Stellar Network ; September 2015"
+
+[DOCUMENTATION]
+ORG_NAME="Impersonation Example"
+ORG_URL="https://impersonation.example/"
+
+[[CURRENCIES]]
+code = "AQUA"
+issuer = "GDSTRSHXHGJ7ZIVRBXEYE5Q74XUVCUSEKEBR7UCHEUUEK72N7I7KJ6JH"
+name = "AQUA"
+desc="A synthetic CURRENCIES entry that uses the correct code (AQUA) but a different issuer. The reciprocity check must refuse this because only code matches — both code AND issuer are required."

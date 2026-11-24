@@ -25,6 +25,7 @@ func TestDocsAPIEndpointCoverage(t *testing.T) {
 	headings := map[string]string{
 		"GET /api/v1/scan":     "### `GET /api/v1/scan",
 		"GET /api/v1/history":  "### `GET /api/v1/history",
+		"GET /api/v1/events":   "### `GET /api/v1/events",
 		"GET /api/v1/exposure": "### `GET /api/v1/exposure",
 		"GET /metrics":         "### `GET /metrics`",
 		"GET /healthz":         "### `GET /healthz`",

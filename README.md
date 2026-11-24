@@ -97,6 +97,7 @@ Check an attestation, investigate a verdict, audit what Assay claims.
 | [docs/fail-closed.md](docs/fail-closed.md) | Every place a failure could influence the answer, classified as fail-closed or not, with the evidence |
 | [docs/ever-escalated-marker.md](docs/ever-escalated-marker.md) | Design (not implemented): an on-chain record that closes the reputation/attribution threat class |
 | [docs/threat-model.md](docs/threat-model.md) | The actors, what each can do, and which attacks Assay defends against, accepts, or scopes out |
+| [docs/review-scope.md](docs/review-scope.md) | External security review scope: in-scope contract entrypoints, every invariant mapped to its test (or flagged), and what is excluded |
 | [docs/offline-bundle.md](docs/offline-bundle.md) | Archiving the exact source bytes behind an attestation, and verifying them without a network |
 | [docs/eval.md](docs/eval.md) | Labelled trap/legitimate set and current results |
 | [docs/severity-rating-comparison.md](docs/severity-rating-comparison.md) | Dated comparison of Assay severity with StellarExpert's rating for the top-50 fixture and scanned sample |
@@ -116,6 +117,7 @@ Read or change the code, or review a design.
 | [docs/attestation-writer.md](docs/attestation-writer.md) | Design (not implemented): the attestation writer pipeline, answering the open questions in #8 |
 | [docs/multi-attestor.md](docs/multi-attestor.md) | Design (for review): approaches to multi-attestor writes, answering #88 |
 | [docs/testing.md](docs/testing.md) | Package-level testing guide: which test belongs where, and how CI runs them |
+| [docs/automerge.md](docs/automerge.md) | How the automerge bot evaluates and merges pull requests, and how to dry-run changes |
 | [docs/mutation-catalogue.md](docs/mutation-catalogue.md) | The mutation catalogue and baseline: which mutations were applied by hand, and what the tests caught |
 | [docs/sep-asset-safety-attestation.md](docs/sep-asset-safety-attestation.md) | Draft SEP for the asset safety attestation interface |
 | [docs/sessions/2026-08-10-mvp-core.md](docs/sessions/2026-08-10-mvp-core.md) | Session log: empty repo to a working scanner, eval and contract |

@@ -23,10 +23,14 @@ paths:
           required: false
           schema:
             type: string
-            pattern: '^G[A-Z2-7]{55}$'
+            pattern: '^(G[A-Z2-7]{55}|M[A-Z2-7]{68})$'
           example: GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H
           description: >-
-            Optional holder account ID (G..., 56 characters). Answers "am I
+            Optional holder account ID: a G... account (56 characters) or an
+            M... muxed account (69 characters). A muxed address is resolved to
+            its base G... account for the trustline lookup, and the evidence
+            records the original address, its multiplexing id, and the account
+            that was read. Answers "am I
             exposed?" for that account: the scan reads the holder's trustline
             and adds a "trustline" finding with the trustline's
             is_clawback_enabled and is_authorized flags, adding the
@@ -50,24 +54,22 @@ paths:
                 $ref: '#/components/schemas/Report'
         '400':
           description: >-
-            Invalid request parameters (including a holder that is not a G...
-            account ID), or an asset identifier naming the
+            Invalid request parameters (including a holder that is neither a
+            G... account nor an M... muxed account), or an asset identifier naming the
             network's native asset (native/XLM), which has no issuer and no
             authorization flags and is therefore never scanned or attested.
-            Codes: missing_asset, invalid_asset, invalid_holder,
-            invalid_parameter.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '404':
-          description: Asset not found on the ledger. Code: asset_not_found.
+          description: Asset not found on the ledger.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '502':
-          description: Upstream scan failure. Code: upstream_unavailable.
+          description: Upstream scan failure.
           content:
             application/json:
               schema:
@@ -86,17 +88,73 @@ paths:
           schema:
             type: string
           description: Asset code and issuer (e.g. USDC-GA5Z...)
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 256
+          description: >-
+            Maximum observations to return (default 100, maximum 256). Values
+            outside the range are rejected with 400 rather than clamped, so a
+            caller's cursor arithmetic stays correct. A page can exceed this
+            when observations share its oldest timestamp, because a time
+            cursor cannot resume between them.
+        - name: before
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: >-
+            Exclusive time cursor. Returns retained observations strictly older
+            than this RFC 3339 timestamp, so a caller pages backwards from
+            `next_before`.
       responses:
         '200':
-          description: History in time order, oldest first.
+          description: One page of history in time order, oldest first.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/History'
         '400':
-          description: >-
-            Missing or invalid asset, or the network's native asset.
-            Codes: missing_asset, invalid_asset.
+          description: Missing or invalid asset, or the network's native asset.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/events:
+    get:
+      summary: Server-sent events stream for capability, severity, and accountability transitions
+      description: >-
+        Opens a long-lived SSE connection that pushes a message whenever a stored
+        observation produces a transition. The stream includes heartbeats every
+        15 seconds to keep the connection alive through proxies. Connections are
+        capped at 100 concurrent clients per server instance.
+      responses:
+        '200':
+          description: A stream of transition events in SSE format.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: Each event is a JSON object with asset, transition, and timestamp fields.
+        '400':
+          description: Missing or invalid asset parameter.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Too many concurrent SSE connections. Retry-After header gives seconds to wait.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: SSE not supported by the server infrastructure.
           content:
             application/json:
               schema:
@@ -115,7 +173,10 @@ paths:
           required: true
           schema:
             type: string
-          description: Holder's account address (G...)
+          description: >-
+            Holder's account address: a G... account, or an M... muxed account
+            that resolves to one. A muxed account's trustlines are read from
+            its base G... account, and the evidence records the resolution.
         - name: limit
           in: query
           required: false
@@ -141,31 +202,25 @@ paths:
               schema:
                 $ref: '#/components/schemas/Exposure'
         '400':
-          description: >-
-            Missing or invalid account, limit, or cursor.
-            Codes: missing_account, invalid_account, invalid_parameter.
+          description: Missing or invalid account, limit, or cursor.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '404':
-          description: Account not found on the ledger. Code: account_not_found.
+          description: Account not found on the ledger.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '429':
-          description: >-
-            Rate limited. Retry-After header gives seconds to wait.
-            Code: rate_limited.
+          description: Rate limited. Retry-After header gives seconds to wait.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '502':
-          description: >-
-            The account's trustline list could not be fetched.
-            Code: upstream_unavailable.
+          description: The account's trustline list could not be fetched.
           content:
             application/json:
               schema:
@@ -226,27 +281,21 @@ components:
   schemas:
     Error:
       type: object
-      description: >-
-        Error body returned with every non-2xx response from /api/v1/*.
-        Consumers must branch on `code`, never on the human-readable `error`
-        string; `error` may change, `code` is stable across releases.
       required: [error, code]
       properties:
         error:
           type: string
-          description: Human-readable error message.
+          description: Human-readable description of the problem.
         code:
           type: string
           description: >-
-            Machine-readable error code, stable across releases. See
-            docs/api.md for the full set.
+            Stable machine-readable identifier for the error type.
+            Consumers should branch on this field, not on the error message.
           enum:
-            - missing_asset
+            - missing_param
             - invalid_asset
             - invalid_holder
-            - invalid_parameter
-            - missing_account
-            - invalid_account
+            - invalid_param
             - asset_not_found
             - account_not_found
             - upstream_unavailable
@@ -570,8 +619,37 @@ components:
         attribution:
           type: string
           enum: [none, capability, reputation, both]
+        deescalation:
+          $ref: '#/components/schemas/Deescalation'
         accountability:
           $ref: '#/components/schemas/AccountabilityMovement'
+    Deescalation:
+      type: object
+      description: >-
+        A typed severity decrease, present exactly when the final severity fell
+        between two valid observations. It names the evidence source(s) whose
+        withdrawn claim produced the fall, so a reversal is observable without
+        diffing evidence by hand.
+      required: [from, to, attribution, sources]
+      properties:
+        from:
+          $ref: '#/components/schemas/Severity'
+        to:
+          $ref: '#/components/schemas/Severity'
+        attribution:
+          type: string
+          enum: [none, capability, reputation, both]
+          description: The axis that produced the fall.
+        sources:
+          type: array
+          description: >-
+            Evidence sources that withdrew an escalation-causing claim, sorted
+            and deduplicated. Empty when severity fell without a source's
+            evidence recording the withdrawal.
+          items:
+            type: string
+        reason:
+          type: string
     AccountabilityMovement:
       type: object
       description: >-
@@ -596,7 +674,7 @@ components:
     History:
       type: object
       description: The body of GET /api/v1/history.
-      required: [asset, state, count, observations, transitions, retention]
+      required: [asset, state, count, observations, transitions, limit, retention, max_assets]
       properties:
         asset:
           $ref: '#/components/schemas/Asset'
@@ -611,22 +689,43 @@ components:
           description: Present when state is not valid.
         count:
           type: integer
+          description: Observations returned on this page, not in the whole history.
         observations:
           type: array
           items:
             $ref: '#/components/schemas/Observation'
         transitions:
           type: array
+          description: >-
+            Differences between consecutive observations, including the one
+            from the predecessor before this page, so a change at a page
+            boundary is still reported.
           items:
             $ref: '#/components/schemas/Transition'
+        limit:
+          type: integer
+          description: Page size actually applied.
+        next_before:
+          type: string
+          format: date-time
+          description: >-
+            Cursor for the next (older) page; send it back as `before`. Absent
+            on the page that reaches the oldest retained observation.
         latest_at:
           type: string
           format: date-time
+          description: The most recent observation overall, not only on this page.
         latest_age_secs:
           type: integer
         retention:
           type: integer
           description: The per-asset observation cap these results were read against.
+        max_assets:
+          type: integer
+          description: >-
+            The global cap on assets the store retains. Eviction is whole-asset
+            and least-recently-observed-first, so on a deployment at the cap a
+            `missing` state means "not retained", not "never observed".
     Exposure:
       type: object
       description: The body of GET /api/v1/exposure.

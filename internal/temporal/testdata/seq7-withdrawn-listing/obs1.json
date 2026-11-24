@@ -1,0 +1,15 @@
+{
+  "asset": {"code": "DOGE", "issuer": "GA22IDJNHUMC3XKUCCBFNTQIJOUBWINC5GCXHLJ2V6KZ3OWAXCULNQ7P"},
+  "at": "2026-09-16T00:00:00Z",
+  "mechanics": 32,
+  "base_severity": "clear",
+  "severity": "critical",
+  "undetermined": false,
+  "evidence": [
+    {
+      "source": "stellar.expert/directory",
+      "url": "https://api.stellar.expert/explorer/directory/GA22IDJNHUMC3XKUCCBFNTQIJOUBWINC5GCXHLJ2V6KZ3OWAXCULNQ7P",
+      "claim": "listed as \"DogeCoin\" (domain \"doge.org\", tags: malicious)"
+    }
+  ]
+}

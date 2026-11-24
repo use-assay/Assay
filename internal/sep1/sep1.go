@@ -11,6 +11,7 @@
 package sep1
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -638,8 +639,20 @@ func (f *Fetcher) fetch(ctx context.Context, target string) (*Doc, error) {
 	return doc, nil
 }
 
+// utf8BOM is the three-byte UTF-8 byte-order mark that some editors (notably
+// Notepad on Windows) prepend to text files. The TOML specification does not
+// require parsers to accept it, so a BOM would otherwise turn a valid toml
+// into an unparseable one and a real issuer claim into unverified (#375).
+var utf8BOM = []byte{0xEF, 0xBB, 0xBF}
+
 // Parse decodes stellar.toml bytes.
+//
+// A leading UTF-8 BOM is stripped before decoding: Windows-authored tomls
+// are common and a BOM must not make an otherwise-valid file unparseable.
+// CRLF line endings are accepted by the underlying TOML parser without
+// special handling.
 func Parse(b []byte) (*Doc, error) {
+	b = bytes.TrimPrefix(b, utf8BOM)
 	var d Doc
 	if err := toml.Unmarshal(b, &d); err != nil {
 		return nil, fmt.Errorf("sep1: decode toml: %w", err)

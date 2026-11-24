@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"errors"
-	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -98,11 +97,16 @@ type exposureAsset struct {
 func (s *Server) handleExposure(w http.ResponseWriter, r *http.Request) {
 	account := r.URL.Query().Get("account")
 	if account == "" {
-		writeJSON(w, http.StatusBadRequest, errorBody{"missing ?account=G... address", codeMissingAccount})
+		writeJSON(w, http.StatusBadRequest, apiErr(codeMissingParam, "missing ?account=G... address"))
 		return
 	}
-	if err := scan.ValidateHolder(account); err != nil {
-		writeJSON(w, http.StatusBadRequest, errorBody{err.Error(), codeInvalidAccount})
+	// A muxed (M…) holder names a virtual sub-account of a ledger account, so
+	// the listing is read from the base G… account it resolves to (SEP-23).
+	// ScanWithHolder below receives the original address, so each asset's
+	// trustline evidence still records the resolution.
+	baseAccount, _, _, err := scan.ParseHolder(account)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, apiErr(codeInvalidHolder, err.Error()))
 		return
 	}
 
@@ -110,7 +114,7 @@ func (s *Server) handleExposure(w http.ResponseWriter, r *http.Request) {
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 1 {
-			writeJSON(w, http.StatusBadRequest, errorBody{"invalid limit: must be a positive integer", codeInvalidParameter})
+			writeJSON(w, http.StatusBadRequest, apiErr(codeInvalidParam, "invalid limit: must be a positive integer"))
 			return
 		}
 		// The bound is enforced by clamping rather than rejecting: a caller
@@ -125,7 +129,7 @@ func (s *Server) handleExposure(w http.ResponseWriter, r *http.Request) {
 	if raw := r.URL.Query().Get("cursor"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 0 {
-			writeJSON(w, http.StatusBadRequest, errorBody{"invalid cursor: must be a non-negative integer", codeInvalidParameter})
+			writeJSON(w, http.StatusBadRequest, apiErr(codeInvalidParam, "invalid cursor: must be a non-negative integer"))
 			return
 		}
 		cursor = n
@@ -134,14 +138,14 @@ func (s *Server) handleExposure(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), exposureTimeout)
 	defer cancel()
 
-	trustlines, err := s.Scanner.Horizon.Trustlines(ctx, account)
+	trustlines, err := s.Scanner.Horizon.Trustlines(ctx, baseAccount)
 	if err != nil {
 		if errors.Is(err, horizon.ErrNotFound) {
-			writeJSON(w, http.StatusNotFound, errorBody{"account not found on the ledger", codeAccountNotFound})
+			writeJSON(w, http.StatusNotFound, apiErr(codeAccountNotFound, "account not found on the ledger"))
 			return
 		}
 		s.loggerFrom(r.Context()).Error("exposure: trustline fetch failed", "account", account, "err", err)
-		writeJSON(w, http.StatusBadGateway, errorBody{"exposure failed: " + err.Error(), codeUpstreamUnavailable})
+		writeJSON(w, http.StatusBadGateway, apiErr(codeUpstreamUnavail, "exposure failed: "+err.Error()))
 		return
 	}
 
@@ -226,10 +230,7 @@ func (s *Server) exposureFor(ctx context.Context, account string, tl horizon.Tru
 // silently.
 func (s *Server) withExposureLimit(limiter *RateLimiter, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		key := r.RemoteAddr
-		if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-			key = host
-		}
+		key := s.ClientKey(r)
 		ok, retry := limiter.Allow(key)
 		if !ok {
 			secs := int64(retry / time.Second)
@@ -237,11 +238,34 @@ func (s *Server) withExposureLimit(limiter *RateLimiter, next http.HandlerFunc) 
 				secs = 1
 			}
 			w.Header().Set("Retry-After", strconv.FormatInt(secs, 10))
-			writeJSON(w, http.StatusTooManyRequests, errorBody{
-				"rate limit exceeded: exposure runs full scans per asset; retry in " +
-					strconv.FormatInt(secs, 10) + "s",
-				codeRateLimited,
-			})
+			writeJSON(w, http.StatusTooManyRequests, apiErr(codeRateLimited,
+				"rate limit exceeded: exposure runs full scans per asset; retry in "+
+					strconv.FormatInt(secs, 10)+"s",
+			))
+			return
+		}
+		next(w, r)
+	}
+}
+
+// withScanLimit wraps the scan handler in the server's per-scan rate limit.
+// Each scan fans out to Horizon, the issuer's domain and StellarExpert; a
+// limit protects those upstreams from being hammered under Assay's
+// User-Agent from a single client. A refused caller is told when to retry.
+func (s *Server) withScanLimit(limiter *RateLimiter, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		key := s.ClientKey(r)
+		ok, retry := limiter.Allow(key)
+		if !ok {
+			secs := int64(retry / time.Second)
+			if secs < 1 {
+				secs = 1
+			}
+			w.Header().Set("Retry-After", strconv.FormatInt(secs, 10))
+			writeJSON(w, http.StatusTooManyRequests, apiErr(codeRateLimited,
+				"rate limit exceeded: scan fans out to upstream services; retry in "+
+					strconv.FormatInt(secs, 10)+"s",
+			))
 			return
 		}
 		next(w, r)

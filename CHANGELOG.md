@@ -64,6 +64,17 @@ matching section — see [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### safety-registry
 
+- **2026-11-21 — `INTERFACE_VERSION` 3 → 4: `Quorum::InvalidArguments`.**
+  `quorum` returned `Unavailable(0)` for `threshold == 0`, a threshold above
+  the deduplicated set, or a set above `MAX_ATTESTORS`, so a miscalibrated
+  consumer saw the same value as one whose attestors were all offline. It now
+  returns the new `InvalidArguments` variant, appended last so existing
+  variants keep their encoding; `Unavailable` is reserved for valid calls with
+  too few responders. A new variant was chosen over `Result<Quorum, Error>`
+  because it keeps the return type and every call site's shape, and keeps
+  Met, Unavailable, Contested and the invalid call as values an observer can
+  tell apart. `is_safe_quorum` still returns `false`
+  ([#567](https://github.com/use-assay/Assay/issues/567)).
 - **2026-10-20 — `INTERFACE_VERSION` 1 → 2: `cancel_admin_transfer`.** The
   admin can withdraw a pending two-step transfer; a cancellation with
   nothing pending returns `NoPendingAdmin` rather than succeeding quietly,
@@ -113,6 +124,15 @@ matching section — see [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## CLI and HTTP API
 
+- **2026-11-21 — bounded history pages, a global store bound, and typed
+  de-escalation.** `/api/v1/history` takes `limit`/`before` and returns
+  `limit` and `next_before`, with the transition at a page boundary still
+  reported; the history store caps retained assets (`max_assets` in every
+  response) so the log file can no longer grow without bound; and a severity
+  fall is a typed `deescalation` naming the evidence source that withdrew its
+  claim ([#388](https://github.com/use-assay/Assay/issues/388),
+  [#389](https://github.com/use-assay/Assay/issues/389),
+  [#390](https://github.com/use-assay/Assay/issues/390)).
 - **2026-10-20 — `assay diff`, offline bundles, verify-all script.** `diff`
   explains what changed between two observations; the offline bundle archives
   the exact source bytes behind an attestation and verifies them without a

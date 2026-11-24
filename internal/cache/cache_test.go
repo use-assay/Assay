@@ -1,6 +1,7 @@
 package cache_test
 
 import (
+	"fmt"
 	"strconv"
 	"sync"
 	"testing"
@@ -178,4 +179,189 @@ func TestConcurrentGetPut(t *testing.T) {
 		}(w)
 	}
 	wg.Wait()
+}
+
+// Single-flight: concurrent GetOrFetch for the same absent key runs fetch once.
+func TestSingleFlightDeduplicatesConcurrentFetches(t *testing.T) {
+	clk := newClock(t0)
+	c := cache.New[string](time.Hour, cache.WithClock(clk.Now))
+
+	fetchCount := 0
+	var fetchMu sync.Mutex
+
+	fetch := func() (cache.Entry[string], error) {
+		fetchMu.Lock()
+		fetchCount++
+		fetchMu.Unlock()
+		// Simulate a slow fetch.
+		time.Sleep(10 * time.Millisecond)
+		return cache.Entry[string]{Value: "fetched", FetchedAt: clk.Now()}, nil
+	}
+
+	var wg sync.WaitGroup
+	results := make(chan cache.Entry[string], 8)
+	errors := make(chan error, 8)
+
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			entry, fromCache, err := c.GetOrFetch("same-key", fetch)
+			if err != nil {
+				errors <- err
+				return
+			}
+			results <- entry
+			_ = fromCache // we don't assert on fromCache here, just that all succeed
+		}()
+	}
+
+	wg.Wait()
+	close(results)
+	close(errors)
+
+	// All 8 callers should have succeeded.
+	for err := range errors {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	count := 0
+	var fetchedAt time.Time
+	for entry := range results {
+		count++
+		if entry.Value != "fetched" {
+			t.Errorf("got value %q, want %q", entry.Value, "fetched")
+		}
+		if fetchedAt.IsZero() {
+			fetchedAt = entry.FetchedAt
+		} else if !entry.FetchedAt.Equal(fetchedAt) {
+			t.Errorf("waiters received different FetchedAt: %v vs %v", entry.FetchedAt, fetchedAt)
+		}
+	}
+
+	if count != 8 {
+		t.Fatalf("expected 8 results, got %d", count)
+	}
+
+	fetchMu.Lock()
+	if fetchCount != 1 {
+		t.Fatalf("fetch ran %d times, want 1 (single-flight deduplication)", fetchCount)
+	}
+	fetchMu.Unlock()
+}
+
+// Single-flight: errors are shared but not cached.
+func TestSingleFlightErrorNotCached(t *testing.T) {
+	clk := newClock(t0)
+	c := cache.New[string](time.Hour, cache.WithClock(clk.Now))
+
+	fetchCount := 0
+	var fetchMu sync.Mutex
+
+	fetch := func() (cache.Entry[string], error) {
+		fetchMu.Lock()
+		fetchCount++
+		fetchMu.Unlock()
+		time.Sleep(5 * time.Millisecond) // simulate network round-trip for error
+		return cache.Entry[string]{}, fmt.Errorf("upstream error")
+	}
+
+	// First concurrent batch: all should get the same error.
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _, err := c.GetOrFetch("error-key", fetch)
+			if err == nil {
+				t.Error("expected error, got nil")
+			}
+		}()
+	}
+	wg.Wait()
+
+	// Cache should still be empty for this key (error not cached).
+	if _, ok := c.Get("error-key"); ok {
+		t.Fatal("error was cached; cache should remain empty after failed fetch")
+	}
+
+	// Second batch: fetch should run again.
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _, err := c.GetOrFetch("error-key", fetch)
+			if err == nil {
+				t.Error("expected error, got nil")
+			}
+		}()
+	}
+	wg.Wait()
+
+	fetchMu.Lock()
+	if fetchCount != 2 {
+		t.Fatalf("fetch ran %d times, want 2 (error not cached, so retry runs fetch again)", fetchCount)
+	}
+	fetchMu.Unlock()
+}
+
+// Single-flight: cache hit returns fromCache=true, waiters also get fromCache=true.
+func TestSingleFlightFromCacheReporting(t *testing.T) {
+	clk := newClock(t0)
+	c := cache.New[string](time.Hour, cache.WithClock(clk.Now))
+
+	// Pre-populate cache.
+	c.Put("cached-key", cache.Entry[string]{Value: "cached", FetchedAt: t0})
+
+	entry, fromCache, err := c.GetOrFetch("cached-key", func() (cache.Entry[string], error) {
+		t.Fatal("fetch should not be called for cached key")
+		return cache.Entry[string]{}, nil
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !fromCache {
+		t.Error("cache hit should report fromCache=true")
+	}
+	if entry.Value != "cached" {
+		t.Errorf("got %q, want %q", entry.Value, "cached")
+	}
+
+	// Now test single-flight waiters.
+	fetchCount := 0
+	fetch := func() (cache.Entry[string], error) {
+		fetchCount++
+		time.Sleep(10 * time.Millisecond)
+		return cache.Entry[string]{Value: "fetched", FetchedAt: clk.Now()}, nil
+	}
+
+	var wg sync.WaitGroup
+	fromCacheResults := make(chan bool, 4)
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, fromCache, err := c.GetOrFetch("wait-key", fetch)
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+			fromCacheResults <- fromCache
+		}()
+	}
+	wg.Wait()
+	close(fromCacheResults)
+
+	// The first caller (fetcher) gets fromCache=false, waiters get fromCache=true.
+	fromCacheCount := 0
+	for fc := range fromCacheResults {
+		if fc {
+			fromCacheCount++
+		}
+	}
+	if fromCacheCount != 3 {
+		t.Errorf("expected 3 waiters with fromCache=true, got %d", fromCacheCount)
+	}
+	if fetchCount != 1 {
+		t.Fatalf("fetch ran %d times, want 1", fetchCount)
+	}
 }

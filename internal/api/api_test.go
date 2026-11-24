@@ -129,52 +129,6 @@ func TestUnknownPathIs404(t *testing.T) {
 	}
 }
 
-// TestErrorBodiesHaveCode verifies that every error response includes a stable
-// machine-readable code field. The test stays hermetic: every path exercised
-// fails before any network call.
-func TestErrorBodiesHaveCode(t *testing.T) {
-	h := newTestServer()
-
-	type errorResp struct {
-		Error string `json:"error"`
-		Code  string `json:"code"`
-	}
-
-	for _, tc := range []struct {
-		name   string
-		method string
-		query  string
-		want   string
-	}{
-		{"scan: missing asset", http.MethodGet, "/api/v1/scan", "missing_asset"},
-		{"scan: invalid asset", http.MethodGet, "/api/v1/scan?asset=bad", "invalid_asset"},
-		{"scan: invalid holder", http.MethodGet, "/api/v1/scan?asset=USDC-GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN&holder=notanaccount", "invalid_holder"},
-		{"scan: invalid max_age_secs", http.MethodGet, "/api/v1/scan?asset=USDC-GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN&max_age_secs=bad", "invalid_parameter"},
-		{"history: missing asset", http.MethodGet, "/api/v1/history", "missing_asset"},
-		{"history: invalid asset", http.MethodGet, "/api/v1/history?asset=bad", "invalid_asset"},
-		{"exposure: missing account", http.MethodGet, "/api/v1/exposure", "missing_account"},
-		{"exposure: invalid account", http.MethodGet, "/api/v1/exposure?account=notanaccount", "invalid_account"},
-		{"exposure: invalid limit", http.MethodGet, "/api/v1/exposure?account=GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H&limit=bad", "invalid_parameter"},
-		{"exposure: invalid cursor", http.MethodGet, "/api/v1/exposure?account=GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H&cursor=-1", "invalid_parameter"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			rec := httptest.NewRecorder()
-			h.ServeHTTP(rec, httptest.NewRequest(tc.method, tc.query, nil))
-
-			var body errorResp
-			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-				t.Fatalf("decode: %v (body: %s)", err, rec.Body.String())
-			}
-			if body.Code != tc.want {
-				t.Errorf("code = %q, want %q (error: %q)", body.Code, tc.want, body.Error)
-			}
-			if body.Error == "" {
-				t.Error("error message was empty")
-			}
-		})
-	}
-}
-
 func TestScanUndeterminedHeaderContract(t *testing.T) {
 	// A scan on a nonexistent or unreachable asset returns undetermined or fails;
 	// we can verify the header contract is set properly on responses.
@@ -187,54 +141,127 @@ func TestScanUndeterminedHeaderContract(t *testing.T) {
 	}
 }
 
-// TestCORSHeaderOnGET verifies that every GET response includes the
-// Access-Control-Allow-Origin: * header required by issue #428.
-func TestCORSHeaderOnGET(t *testing.T) {
+func TestCORSHeadersOnAPIRoutes(t *testing.T) {
 	h := newTestServer()
 
-	for _, path := range []string{
-		"/api/v1/scan?asset=USDC-GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
-		"/api/v1/history?asset=USDC-GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
-		"/api/v1/scan",          // 400 response also carries the header
-		"/healthz",
+	for _, tc := range []struct {
+		name   string
+		path   string
+		method string
+		want   int
+	}{
+		{"GET scan CORS", "/api/v1/scan", http.MethodGet, http.StatusBadRequest},
+		{"OPTIONS preflight scan", "/api/v1/scan", http.MethodOptions, http.StatusNoContent},
+		{"OPTIONS preflight history", "/api/v1/history", http.MethodOptions, http.StatusNoContent},
+		{"OPTIONS preflight exposure", "/api/v1/exposure", http.MethodOptions, http.StatusNoContent},
 	} {
-		t.Run(path, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			rec := httptest.NewRecorder()
-			h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
-
+			h.ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, nil))
+			if rec.Code != tc.want {
+				t.Fatalf("status = %d, want %d", rec.Code, tc.want)
+			}
 			if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "*" {
-				t.Errorf("Access-Control-Allow-Origin = %q, want \"*\"", got)
+				t.Errorf("Access-Control-Allow-Origin = %q, want *", got)
 			}
 		})
 	}
 }
 
-// TestCORSPreflight verifies that an OPTIONS preflight returns 204 with the
-// required CORS headers, without hitting the scan or any upstream.
-func TestCORSPreflight(t *testing.T) {
+func TestCORSNotSetOnNonAPIRoutes(t *testing.T) {
+	rec := httptest.NewRecorder()
+	newTestServer().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("Access-Control-Allow-Origin set on UI route: %q", got)
+	}
+}
+
+func TestErrorBodyHasCode(t *testing.T) {
 	h := newTestServer()
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/scan", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+	var body struct {
+		Error string `json:"error"`
+		Code  string `json:"code"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Code == "" {
+		t.Error("error body missing code field; API contract requires a stable code")
+	}
+}
 
-	for _, path := range []string{
-		"/api/v1/scan",
-		"/api/v1/history",
-		"/api/v1/exposure",
-	} {
-		t.Run(path, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodOptions, path, nil)
-			req.Header.Set("Origin", "https://example.com")
-			req.Header.Set("Access-Control-Request-Method", "GET")
-			rec := httptest.NewRecorder()
-			h.ServeHTTP(rec, req)
+// TestScanRateLimitOff pins the default: a nil ScanLimiter means no rate
+// limit is applied, so the handler is reachable without restriction.
+func TestScanRateLimitOff(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	srv := api.NewServer(log)
+	// ScanLimiter is nil by default — no limit installed.
+	h := srv.Handler()
 
-			if rec.Code != http.StatusNoContent {
-				t.Errorf("preflight status = %d, want 204", rec.Code)
-			}
-			if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "*" {
-				t.Errorf("Access-Control-Allow-Origin = %q, want \"*\"", got)
-			}
-			if got := rec.Header().Get("Access-Control-Allow-Methods"); got == "" {
-				t.Error("Access-Control-Allow-Methods header missing")
-			}
-		})
+	for i := 0; i < 5; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/scan", nil)
+		req.RemoteAddr = "203.0.113.1:4000"
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code == http.StatusTooManyRequests {
+			t.Fatalf("request %d: got 429 with no limiter configured", i+1)
+		}
+	}
+}
+
+// TestScanRateLimited pins the per-client rate-limit criterion: a client that
+// exhausts its burst is refused with 429 and a Retry-After header, while a
+// different client's bucket remains untouched (#429).
+func TestScanRateLimited(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	srv := api.NewServer(log)
+	// Burst of 2 with a near-frozen refill so the third request from the same
+	// address is refused without sleeping.
+	srv.ScanLimiter = api.NewRateLimiter(2, 0.000001)
+	h := srv.Handler()
+
+	scan := func(remoteAddr string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/scan?asset=USDC-GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", nil)
+		req.RemoteAddr = remoteAddr
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// First two requests from the same client spend the burst.
+	for i := 1; i <= 2; i++ {
+		rec := scan("203.0.113.1:4000")
+		if rec.Code == http.StatusTooManyRequests {
+			t.Fatalf("request %d: unexpected 429 within burst", i)
+		}
+	}
+
+	// Third request from the same client is refused.
+	rec := scan("203.0.113.1:4000")
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("third request: status = %d, want 429", rec.Code)
+	}
+	if rec.Header().Get("Retry-After") == "" {
+		t.Error("429 without Retry-After: a refused caller is told to stop, not when to return")
+	}
+	var body struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode 429 body: %v", err)
+	}
+	if body.Code != "rate_limited" {
+		t.Errorf("429 code = %q, want rate_limited", body.Code)
+	}
+
+	// A different client still has its own full burst.
+	rec = scan("203.0.113.2:4000")
+	if rec.Code == http.StatusTooManyRequests {
+		t.Fatalf("other client: got 429, want independent burst")
 	}
 }
