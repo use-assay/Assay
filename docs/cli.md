@@ -26,6 +26,7 @@ usage:
                                   compare a stored hash with canonical preimage bytes
   assay checks                    print every check's ID and description
   assay serve [-addr] [-history PATH] [-history-retention N] [-observe FILE] [-observe-interval DURATION]
+              [-attested FILE [-registry-rpc URL] [-staleness-window D]]
                                   serve the HTTP API and UI
   assay version                   print scanner identity, preimage encodings
                                   and build (VCS, Go) information
@@ -72,6 +73,13 @@ The serve command additionally accepts:
                           interval between scheduled scans (default 6h)
   -trusted-proxies CIDR[,CIDR...]
                           trusted reverse proxy CIDRs for rate limiting
+  -attested FILE          attested-set file (attested.json format); /readyz
+                          then reports the registry's attested, unattested
+                          and stale counts for that set
+  -registry-rpc URL       Soroban RPC endpoint -attested reads through
+                          (env ASSAY_RPC_URL)
+  -staleness-window D     attestation age that counts as stale (default: the
+                          file's cadence)
 ```
 
 Commands that consume SEP-0042 asset lists (`scan`, `attestation`, `history`,

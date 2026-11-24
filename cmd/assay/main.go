@@ -26,6 +26,7 @@ import (
 	// HTTP endpoint, a different thing.
 	historystore "github.com/use-assay/assay/internal/history"
 	"github.com/use-assay/assay/internal/mechanics"
+	"github.com/use-assay/assay/internal/registry"
 	"github.com/use-assay/assay/internal/replay"
 	"github.com/use-assay/assay/internal/scan"
 	"github.com/use-assay/assay/internal/temporal"
@@ -113,6 +114,7 @@ func usage(w io.Writer) {
                                   compare a stored hash with canonical preimage bytes
   assay checks                    print every check's ID and description
   assay serve [-addr] [-history PATH] [-history-retention N] [-observe FILE] [-observe-interval DURATION]
+              [-attested FILE [-registry-rpc URL] [-staleness-window D]]
                                   serve the HTTP API and UI
   assay version                   print scanner identity, preimage encodings
                                   and build (VCS, Go) information
@@ -159,6 +161,13 @@ The serve command additionally accepts:
                           interval between scheduled scans (default 6h)
   -trusted-proxies CIDR[,CIDR...]
                           trusted reverse proxy CIDRs for rate limiting
+  -attested FILE          attested-set file (attested.json format); /readyz
+                          then reports the registry's attested, unattested
+                          and stale counts for that set
+  -registry-rpc URL       Soroban RPC endpoint -attested reads through
+                          (env ASSAY_RPC_URL)
+  -staleness-window D     attestation age that counts as stale (default: the
+                          file's cadence)
 `)
 }
 
@@ -772,6 +781,12 @@ func runServe(args []string, log *slog.Logger) error {
 		"interval between scheduled scans of the asset list")
 	trustedProxies := fs.String("trusted-proxies", "",
 		"comma-separated CIDRs of trusted reverse proxies whose X-Forwarded-For headers are trusted")
+	attestedPath := fs.String("attested", "",
+		"attested-set file (attested.json format) whose registry freshness /readyz reports; empty leaves it unconfigured")
+	registryRPC := fs.String("registry-rpc", envOr("ASSAY_RPC_URL", registry.DefaultRPCURL),
+		"Soroban RPC endpoint -attested reads the registry through (env ASSAY_RPC_URL)")
+	stalenessWindow := fs.Duration("staleness-window", 0,
+		"age after which an attestation in the -attested set counts as stale; 0 uses the file's cadence")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
@@ -791,6 +806,12 @@ func runServe(args []string, log *slog.Logger) error {
 		srv.TrustedProxies = proxies
 	}
 	srv.Scanner = newScanner(assetLists(), cache())
+	// Set before srv.Handler(), which builds the readiness prober once and
+	// captures the registry prober then.
+	srv.RegistryStaleness = registryStalenessProber(*attestedPath, *registryRPC, *stalenessWindow)
+	if p := srv.RegistryStaleness; p != nil && p.ConfigurationError != "" {
+		log.Warn("serve: registry staleness misconfigured; /readyz will report it as unknown", "err", p.ConfigurationError)
+	}
 	historyStore, err := openHistory(*historyPath, *historyRetention)
 	if err != nil {
 		return err
