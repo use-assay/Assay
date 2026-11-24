@@ -237,6 +237,21 @@ func TestSequencesProduceExpectedTransitions(t *testing.T) {
 			mechanicsMoved: true,
 		},
 		{
+			dir:   "seq8-add-then-remove",
+			why:   "clawback was added then removed: the last pair sees only the removal; temporal.All sees both",
+			state: temporal.Valid,
+
+			removed:     mechanics.MechClawbackEnabled,
+			attribution: temporal.AttributionCapability,
+
+			baseBefore: mechanics.High, baseAfter: mechanics.Clear,
+			severityBefore: mechanics.High, severityAfter: mechanics.Clear,
+
+			deescalation: true,
+
+			mechanicsMoved: true,
+		},
+		{
 			dir:   "seq6-accountability-change",
 			why:   "the public claim was lost: no capability or severity moved, but who claims the asset did",
 			state: temporal.Valid,

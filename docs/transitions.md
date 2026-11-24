@@ -123,6 +123,38 @@ looks unchanged.
 The reason text names the incomplete side and the checks that did not complete,
 so "unknown" is never printed without the axis that was missing.
 
+## Sequences: every adjacent pair
+
+A transition compares two observations. `temporal.Of` picks the two most recent
+in a series, which answers "what changed since I last looked" and nothing older.
+A capability added and then removed between three scans — clear, clawback,
+clear — reads at the last pair as a plain removal, and a series of
+clear, clawback, clawback, clear, clear as no change at all. Under CAP-0035 the
+window in which the issuer held clawback is the window in which new holders
+became exposed, and a trustline opened then keeps `is_clawback_enabled` after
+the issuer clears the flag. That window must not be invisible.
+
+`temporal.All(observations)` orders the series by time and returns the
+transition across **every** adjacent pair, each built by `Between` with the same
+state rules (an undetermined side makes that pair `unknown`). Fewer than two
+observations yields an empty list rather than a `missing` transition: there is
+no adjacent pair.
+
+`temporal.Summarize(observations)` reports, over the whole sequence:
+
+| Field | Meaning |
+| --- | --- |
+| `held` / `held_names` | every capability bit present in at least one observation |
+| `latest` / `latest_names` | capability bits of the most recent observation |
+| `withdrawn` / `withdrawn_names` | held at some point, absent in the most recent observation |
+| `state` | `valid`; `unknown` when any observation is undetermined (held may be incomplete); `missing` when there are none |
+
+A bit present in an undetermined observation still counts as held: presence was
+read; only absence is in doubt. `assay history -server` uses both — one
+transition per recorded observation and the summary on stderr
+([cli.md](cli.md#assay-history)). The case is pinned by the committed fixture
+`internal/temporal/testdata/seq8-add-then-remove`.
+
 ## Severity movement and attribution
 
 Severity can move with no capability change at all. A blocklisting alone takes an
@@ -370,7 +402,8 @@ publishes these comparisons live in [history.md](history.md), not here.
    `go test ./internal/temporal/ -run Severity -v`,
    `go test ./internal/temporal/ -run Deescalation -v`,
    `go test ./internal/temporal/ -run Accountability -v`,
-   `go test ./internal/temporal/ -run Evidence -v`.
+   `go test ./internal/temporal/ -run Evidence -v`,
+   `go test ./internal/temporal/ -run 'All|Summarize' -v`.
 
 The de-escalation case is pinned by
 `TestDeescalationWithdrawnListing` (unit) and

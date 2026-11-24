@@ -312,6 +312,23 @@ Semantics:
 - **unknown state** — an observation whose claim matches no known transition
   prints with transition `unknown` rather than being dropped.
 
+With `-server URL` the entries are the observations a running `assay serve` has
+recorded, oldest first, and each entry's transition is derived from the
+observation before it with
+[`temporal.All`](transitions.md#sequences-every-adjacent-pair) — `first`,
+`added …`, `removed …`, `no change`, or `unknown` when either side is
+undetermined. Every adjacent pair is compared, not only the last two, so a
+capability added and removed again between scans stays visible. A summary of
+the whole sequence goes to stderr, leaving stdout's JSON and `-raw` shapes
+unchanged:
+
+```
+assay history: 3 observations, state valid
+  capabilities held at any point: auth_clawback_enabled
+  held now:                       none
+  held earlier, not now:          auth_clawback_enabled (trustlines opened while held may still carry them; see CAP-0035)
+```
+
 ## assay verify-preimage
 
 Compares a stored SHA-256 evidence hash with canonical preimage bytes. `PREIMAGE`
