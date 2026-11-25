@@ -41,7 +41,7 @@ jobs:
       # Pinned to the module's own version, as everywhere else: the release
       # binary's stdlib is part of the artifact, so it must be the Go the
       # module names, not whatever `stable` happens to be.
-      - uses: actions/setup-go@v7.0.0
+      - uses: actions/setup-go@v7.1.0
         with:
           go-version-file: go.mod
           cache: true
