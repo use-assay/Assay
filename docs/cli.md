@@ -7,7 +7,8 @@ scripts can ask for a tab-separated `-raw` form where one exists. `verify` and
 
 ```
 usage:
-  assay scan CODE-ISSUER          classify one asset and print the report as JSON
+  assay scan CODE-ISSUER|C...     classify one asset and print the report as JSON
+                                  (a C... SAC address is resolved via Stellar RPC)
   assay attestation CODE-ISSUER   print the on-chain attest() arguments for one asset
   assay verify [-json] [-max-age SECS] [-differential [-rpc URL]]
                [-registry-rpc URL] [-contract C...] [-network NETWORK] CODE-ISSUER
@@ -40,6 +41,10 @@ also accept:
   -asset-lists URL[,URL...]
                            SEP-0042 Stellar Asset Lists to consume
                            (repeatable). No list is used by default.
+
+A C... contract address is accepted by scan in place of CODE-ISSUER: the
+contract's name() is read through Stellar RPC and accepted only if re-deriving
+its SAC address reproduces the input.
 
 The scan command additionally accepts:
   -record DIR             save every upstream response into DIR with a
@@ -97,6 +102,14 @@ every output — report, evidence lines, preimage — prints, so the bytes
 `evidence_hash` commits to are identical whichever form you pasted. The URL's
 `<network>` segment is not checked: which ledger the scan reads is settled by
 the scanner's network binding (#41), not by the address bar.
+
+`assay scan` (and `GET /api/v1/scan`) additionally accept a **contract
+address** (`C...`), which is what the registry keys attestations on. The
+contract's `name()` is read through Stellar RPC and must return `CODE:ISSUER`;
+the input is accepted only when re-deriving that asset's SAC address reproduces
+it, so a contract that names some other asset is refused rather than believed.
+The RPC endpoint is `ASSAY_RPC_URL` or the public endpoint for the scanned
+network (SDF testnet, or `https://mainnet.sorobanrpc.com` on pubnet).
 
 ### The Horizon endpoint (`-horizon`)
 

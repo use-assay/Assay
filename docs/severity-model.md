@@ -269,6 +269,66 @@ The asset can still be worthless, a rug pull by another mechanism, or an
 outright impersonation. `DOGE-GA22IDJN…` in the eval set carries no auth flags
 at all and is a known scam.
 
+**Whether the issuer can mint more supply.** An issuer account that is not
+locked can issue unlimited new supply. That is dilution risk, not confiscation:
+it takes nothing from a specific balance without a signature, and it is not a
+capability flag at all — it is the absence of an account lock. It is reported as
+context evidence and never moves severity; the decision and its reasoning are in
+[issuer mint capability](#issuer-mint-capability-is-context-never-severity).
+
 Assay scans one specific attack surface. It says so rather than implying
 coverage it does not have.
+
+## Issuer mint capability is context, never severity
+
+**The question.** An issuer account that has not been locked can issue more of
+its asset at any time. Holders therefore face dilution risk: supply the issuer
+alone authorizes can reduce the value of every existing balance. Readers ask
+about it, and it is not covered by the severity model, whose scope is what the
+issuer can do *to a balance* — take it or freeze it.
+
+**Decision: context evidence, never severity.** Of the three options the issue
+named — out of scope, attributed context evidence, a separate axis — the answer
+is attributed context evidence, reported next to the accountability axis. It
+never changes severity, in either direction, and it never sets a capability bit.
+
+Three properties force that answer:
+
+- **Minting is not a flag.** Severity is derived from issuer authorization flags
+  and nothing else (Rule 1). Mint capability is the *absence of an account
+  lock* — master key weight, thresholds, and signers on the issuer account. It
+  lives on a different ledger object from the asset, and a report that folded
+  it into severity would gate on-chain decisions on an account's signer layout
+  while the report claims to describe the asset's authorization flags.
+- **Dilution is not a per-holding power.** Clawback and freeze act on one
+  balance, without its holder's consent, and that is precisely what a contract
+  reading `severity <= MEDIUM` is protecting against. Mint dilutes all holders
+  proportionally and takes nothing from a specific balance. Both are real risks;
+  they are not the same question, and answering them with one number would make
+  the number mean two things. It would also inflate every credit asset: before
+  a lock, *every* issuer can mint, so the level would carry no information.
+- **Locking is a conditional, not a capability.** A locked issuer is a genuine
+  safety property, and the same argument as `auth_immutable` applies: what it
+  means depends on what is already set, and it constrains the future rather than
+  the present. It must never lower a severity either, or the cheapest way past
+  a gate would be an issuer action that changes nothing about existing holders.
+
+**What the report will carry.** When the issuer-lock check lands, its result is
+a finding like any other: attributed to the issuer account record, stating
+whether the account is locked and therefore whether new supply can be minted.
+It sits beside `accountability` — the other published-claim axis — and is not
+averaged, summed, or escalated into the level. An unread lock is `undetermined`
+and named as a gap, never rendered as "cannot mint": the rule that "we could
+not check" must not look like "this is fine" applies to this question exactly
+as it does to the domain blocklist.
+
+**Why not a separate axis yet.** A third axis is a compatibility commitment:
+its value would enter the report schema and, once attestations carry it, the
+evidence preimage. No consumer asks for that yet, so the smallest honest form is
+context evidence. Recording the decision now means a future mint-risk axis
+starts from an argument rather than a redesign — and, until then, nothing about
+the severity contract changes. The invariant that reputation must never set a
+capability bit applies here unchanged: a mint finding contributes no severity
+and no capability bit, and the tests that strip attribution from a subject must
+continue to leave severity byte-identical.
 - [Temporal Trust Model](temporal.md)

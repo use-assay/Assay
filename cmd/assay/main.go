@@ -92,7 +92,8 @@ func newFlagSet(name string) *flag.FlagSet {
 
 func usage(w io.Writer) {
 	_, _ = fmt.Fprint(w, `usage:
-  assay scan CODE-ISSUER          classify one asset and print the report as JSON
+  assay scan CODE-ISSUER|C...     classify one asset and print the report as JSON
+                                  (a C... SAC address is resolved via Stellar RPC)
   assay attestation CODE-ISSUER   print the on-chain attest() arguments for one asset
   assay verify [-json] [-max-age SECS] [-differential [-rpc URL]]
                [-registry-rpc URL] [-contract C...] [-network NETWORK] CODE-ISSUER
@@ -125,6 +126,10 @@ also accept:
   -asset-lists URL[,URL...]
                            SEP-0042 Stellar Asset Lists to consume
                            (repeatable). No list is used by default.
+
+A C... contract address is accepted by scan in place of CODE-ISSUER: the
+contract's name() is read through Stellar RPC and accepted only if re-deriving
+its SAC address reproduces the input.
 
 The scan command additionally accepts:
   -record DIR             save every upstream response into DIR with a
@@ -216,11 +221,7 @@ func runScan(args []string, d commandDeps) error {
 		return err
 	}
 	if fs.NArg() != 1 {
-		return usagef("scan takes exactly one asset (CODE-ISSUER)")
-	}
-	asset, err := scan.ParseAsset(fs.Arg(0))
-	if err != nil {
-		return fmt.Errorf("scan: %w", err)
+		return usagef("scan takes exactly one asset (CODE-ISSUER or a C… SAC address)")
 	}
 	if *recordDir != "" && *replayDir != "" {
 		return fmt.Errorf("-record and -replay are mutually exclusive")
@@ -234,7 +235,7 @@ func runScan(args []string, d commandDeps) error {
 	// Set the env var so that scan.New() picks it up.
 	os.Setenv("ASSAY_HORIZON_URL", hz) // nolint:errcheck
 
-	scanFn, finish, err := scanFuncForRecording(assetLists(), cache(), d, *recordDir, *replayDir)
+	scanFn, finish, scanner, err := scanFuncForRecording(assetLists(), cache(), d, *recordDir, *replayDir)
 	if err != nil {
 		return err
 	}
@@ -244,6 +245,21 @@ func runScan(args []string, d commandDeps) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+
+	input := fs.Arg(0)
+	var asset mechanics.Asset
+	if scan.IsContractAddress(input) {
+		// A C… input is resolved through Stellar RPC before it can be scanned.
+		if scanner == nil {
+			scanner = newScanner(assetLists(), cache())
+		}
+		asset, err = scanner.ResolveAsset(ctx, input)
+	} else {
+		asset, err = scan.ParseAsset(input)
+	}
+	if err != nil {
+		return fmt.Errorf("scan: %w", err)
+	}
 
 	report, err := scanFn(ctx, asset)
 	if err != nil {
@@ -266,16 +282,16 @@ func runScan(args []string, d commandDeps) error {
 // fetchers' transport in a recorder; -replay replaces it with the recording.
 // Nothing else about the scan changes — same fetches, same engine — which is
 // what makes a replayed report comparable to the recorded one.
-func scanFuncForRecording(lists []string, opts scan.Options, d commandDeps, recordDir, replayDir string) (func(context.Context, mechanics.Asset) (*mechanics.Report, error), func(), error) {
+func scanFuncForRecording(lists []string, opts scan.Options, d commandDeps, recordDir, replayDir string) (func(context.Context, mechanics.Asset) (*mechanics.Report, error), func(), *scan.Scanner, error) {
 	if recordDir == "" && replayDir == "" {
-		return scanFuncFor(lists, opts, d), func() {}, nil
+		return scanFuncFor(lists, opts, d), func() {}, nil, nil
 	}
 	scanner := d.scanner(lists, opts)
 
 	if recordDir != "" {
 		rec, err := replay.NewRecorder(recordDir, scanner.Horizon.HTTP.Transport)
 		if err != nil {
-			return nil, func() {}, fmt.Errorf("record: %w", err)
+			return nil, func() {}, nil, fmt.Errorf("record: %w", err)
 		}
 		wireTransport(scanner, rec)
 		return scanner.Scan, func() {
@@ -286,15 +302,15 @@ func scanFuncForRecording(lists []string, opts scan.Options, d commandDeps, reco
 				// next -replay into a confusing "unrecorded request".
 				_, _ = fmt.Fprintln(d.stderr, "assay: recording not written:", err)
 			}
-		}, nil
+		}, scanner, nil
 	}
 
 	rp, err := replay.NewReplayer(replayDir)
 	if err != nil {
-		return nil, func() {}, fmt.Errorf("replay: %w", err)
+		return nil, func() {}, nil, fmt.Errorf("replay: %w", err)
 	}
 	wireTransport(scanner, rp)
-	return scanner.Scan, func() {}, nil
+	return scanner.Scan, func() {}, scanner, nil
 }
 
 // wireTransport points every fetcher's client at the same transport. The
@@ -302,8 +318,11 @@ func scanFuncForRecording(lists []string, opts scan.Options, d commandDeps, reco
 // replacing the transport is the one seam every source shares.
 func wireTransport(s *scan.Scanner, rt http.RoundTripper) {
 	for _, c := range []*http.Client{
-		s.Horizon.HTTP, s.Toml.HTTP, s.Expert.HTTP, s.Lists.HTTP,
+		s.Horizon.HTTP, s.Toml.HTTP, s.Expert.HTTP, s.Lists.HTTP, s.RPC,
 	} {
+		if c == nil {
+			continue
+		}
 		c.Transport = rt
 	}
 }
@@ -456,7 +475,7 @@ func runAttestation(args []string, d commandDeps) error {
 		recordingDir = dir
 		// Record into a private directory first; the archive is written only
 		// after the report is derived, so a failed scan leaves no half bundle.
-		scanFn, finish, err = scanFuncForRecording(assetLists(), cache(), d, recordingDir, "")
+		scanFn, finish, _, err = scanFuncForRecording(assetLists(), cache(), d, recordingDir, "")
 		if err != nil {
 			return err
 		}

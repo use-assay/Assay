@@ -104,12 +104,12 @@ the message text.
 | Code | Meaning |
 | --- | --- |
 | `missing_param` | A required query parameter was not supplied. |
-| `invalid_asset` | The `asset` parameter is not a valid `CODE-ISSUER` pair. |
+| `invalid_asset` | The `asset` parameter is not a valid `CODE-ISSUER` pair or SAC contract address, or the contract's `name()` does not round-trip to it. |
 | `invalid_holder` | The `holder` or `account` parameter is neither a valid `G…` account nor a valid `M…` muxed account. |
 | `invalid_param` | Another parameter value is out of range or malformed. |
 | `asset_not_found` | The asset does not exist on the ledger. |
 | `account_not_found` | The account does not exist on the ledger. |
-| `upstream_unavailable` | A required upstream call (Horizon, StellarExpert) failed. |
+| `upstream_unavailable` | A required upstream call (Horizon, StellarExpert, Stellar RPC) failed. |
 | `rate_limited` | The client has exceeded a rate limit (exposure always; scan when configured); see `Retry-After`. |
 
 ## Conventions
@@ -156,7 +156,11 @@ records one observation into the history store (see
 
 Parameters:
 
-- `asset` (required): asset code and issuer, e.g. `USDC-GA5Z...`.
+- `asset` (required): asset code and issuer, e.g. `USDC-GA5Z...`, or a
+  contract address (`C...`). A contract input is resolved through Stellar RPC:
+  its `name()` must return `CODE:ISSUER`, and re-deriving that asset's SAC
+  address must reproduce the input — a contract that names another asset, or
+  is not a SAC, is rejected with `invalid_asset`.
 - `holder` (optional): a holder's `G...` account or `M...` muxed account.
   Adds the holder-trustline finding — whether the issuer can freeze or
   confiscate *this holder's* balance — to the report.
@@ -170,10 +174,12 @@ Parameters:
   A value that is not a non-negative integer is a `400` with code
   `invalid_param`. See [caching.md](caching.md).
 
-The parameter accepts the same three spellings as the CLI — `CODE-ISSUER`,
-`CODE:ISSUER`, and a stellar.expert asset URL (percent-encoded) — and every
-response names the asset in its canonical `CODE-ISSUER` form, so evidence and
-preimage bytes do not depend on which form was sent. See
+The parameter accepts the same spellings as the CLI — `CODE-ISSUER`,
+`CODE:ISSUER`, a stellar.expert asset URL (percent-encoded), and a `C...` SAC
+contract address — and every response names the asset in its canonical
+`CODE-ISSUER` form, so evidence and preimage bytes do not depend on which form
+was sent. A contract address is resolved through Stellar RPC, configured with
+`ASSAY_RPC_URL` or the public endpoint for the scanned network. See
 [cli.md](cli.md#asset-identifiers).
 
 Response headers:

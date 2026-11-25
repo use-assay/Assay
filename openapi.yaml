@@ -17,7 +17,12 @@ paths:
           required: true
           schema:
             type: string
-          description: Asset code and issuer (e.g. USDC-GA5Z...)
+          description: >-
+            Asset code and issuer (e.g. USDC-GA5Z...) or a Stellar Asset
+            Contract address (C...). A contract address is resolved through
+            Stellar RPC: its name() must return CODE:ISSUER and re-deriving
+            that asset's SAC address must reproduce the input, otherwise the
+            request is a 400 invalid_asset.
         - name: holder
           in: query
           required: false
@@ -76,9 +81,10 @@ paths:
           description: >-
             Invalid request parameters (including a holder that is neither a
             G... account nor an M... muxed account, or a max_age_secs that is
-            not a non-negative integer), or an asset identifier naming the
+            not a non-negative integer), an asset identifier naming the
             network's native asset (native/XLM), which has no issuer and no
-            authorization flags and is therefore never scanned or attested.
+            authorization flags and is therefore never scanned or attested,
+            or a contract address that is not a SAC for the asset it names.
           content:
             application/json:
               schema:

@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"regexp"
 	"strings"
@@ -186,6 +187,14 @@ type Scanner struct {
 	// Lists fetches the configured SEP-0042 Stellar Asset Lists.
 	Lists *assetlist.Client
 
+	// RPC is the HTTP client used for Stellar RPC when a contract address
+	// (C…) input is resolved to its classic asset. Nil means a default client.
+	RPC *http.Client
+	// RPCURL is the Stellar RPC endpoint contract inputs are resolved
+	// through. Empty means ASSAY_RPC_URL, then the public endpoint for the
+	// scanned network (see DefaultRPCFor).
+	RPCURL string
+
 	// FetchTimeout bounds any single source fetch. Zero means DefaultFetchTimeout.
 	FetchTimeout time.Duration
 
@@ -304,6 +313,7 @@ func NewWithOptions(opts Options) *Scanner {
 		Expert:  stellarexpert.NewWithOptions(os.Getenv("ASSAY_STELLAREXPERT_URL"), expertOptions(opts)),
 		Engine:  mechanics.NewEngine(),
 		Lists:   assetlist.NewWithOptions(assetlist.Options{TTL: opts.AssetListTTL}),
+		RPC:     &http.Client{Timeout: 15 * time.Second},
 		Network: horizon.PublicNet,
 	}
 }

@@ -333,9 +333,18 @@ func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	asset, err := scan.ParseAsset(raw)
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	// A CODE-ISSUER input is parsed locally; a C… contract input is resolved
+	// through Stellar RPC and accepted only after its SAC address round-trips.
+	asset, err := s.Scanner.ResolveAsset(ctx, raw)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, apiErr(codeInvalidAsset, err.Error()))
+		if errors.Is(err, scan.ErrBadAsset) || errors.Is(err, scan.ErrNativeAsset) || errors.Is(err, scan.ErrNotSAC) {
+			writeJSON(w, http.StatusBadRequest, apiErr(codeInvalidAsset, err.Error()))
+			return
+		}
+		writeJSON(w, http.StatusBadGateway, apiErr(codeUpstreamUnavail, "resolve asset: "+err.Error()))
 		return
 	}
 
@@ -362,8 +371,6 @@ func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
 		maxAge = &d
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-	defer cancel()
 	if maxAge != nil {
 		// The caller's upper bound on reused reputation answers. It reaches
 		// only the StellarExpert lookups; ledger reads are never cached.
