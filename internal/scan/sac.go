@@ -167,7 +167,7 @@ func ResolveContract(ctx context.Context, client *http.Client, rpcURL, contract,
 	name, err := rpcName(ctx, client, rpcURL, contract)
 	if err != nil {
 		if errors.Is(err, errSimulation) {
-			return mechanics.Asset{}, fmt.Errorf("%w: %s does not answer name() as a SAC does: %v",
+			return mechanics.Asset{}, fmt.Errorf("%w: %s does not answer name() as a SAC does: %w",
 				ErrNotSAC, contract, err)
 		}
 		return mechanics.Asset{}, err
@@ -175,11 +175,11 @@ func ResolveContract(ctx context.Context, client *http.Client, rpcURL, contract,
 
 	asset, err := ParseAsset(name)
 	if err != nil {
-		return mechanics.Asset{}, fmt.Errorf("%w: %s reports name %q: %v", ErrNotSAC, contract, name, err)
+		return mechanics.Asset{}, fmt.Errorf("%w: %s reports name %q: %w", ErrNotSAC, contract, name, err)
 	}
 	want, err := sac.Address(asset.Code, asset.Issuer, networkPassphrase)
 	if err != nil {
-		return mechanics.Asset{}, fmt.Errorf("%w: %s reports name %q: %v", ErrNotSAC, contract, name, err)
+		return mechanics.Asset{}, fmt.Errorf("%w: %s reports name %q: %w", ErrNotSAC, contract, name, err)
 	}
 	if want != contract {
 		return mechanics.Asset{}, fmt.Errorf(
@@ -207,7 +207,7 @@ func rpcNetwork(ctx context.Context, client *http.Client, rpcURL string) (string
 func rpcName(ctx context.Context, client *http.Client, rpcURL, contract string) (string, error) {
 	raw, err := sac.ContractIDBytes(contract)
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", ErrNotSAC, err)
+		return "", fmt.Errorf("%w: %w", ErrNotSAC, err)
 	}
 	tx := base64.StdEncoding.EncodeToString(invokeNameEnvelope(raw))
 
@@ -239,16 +239,16 @@ func rpcCall(ctx context.Context, client *http.Client, rpcURL, method string, pa
 		"params":  params,
 	})
 	if err != nil {
-		return fmt.Errorf("%w: encode %s request: %v", ErrRPC, method, err)
+		return fmt.Errorf("%w: encode %s request: %w", ErrRPC, method, err)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rpcURL, bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("%w: build %s request: %v", ErrRPC, method, err)
+		return fmt.Errorf("%w: build %s request: %w", ErrRPC, method, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("%w: %s: %v", ErrRPC, method, err)
+		return fmt.Errorf("%w: %s: %w", ErrRPC, method, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
@@ -262,13 +262,13 @@ func rpcCall(ctx context.Context, client *http.Client, rpcURL, method string, pa
 		} `json:"error"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, rpcMaxBody)).Decode(&env); err != nil {
-		return fmt.Errorf("%w: decode %s response: %v", ErrRPC, method, err)
+		return fmt.Errorf("%w: decode %s response: %w", ErrRPC, method, err)
 	}
 	if env.Error != nil {
 		return fmt.Errorf("%w: %s: rpc error %d: %s", ErrRPC, method, env.Error.Code, env.Error.Message)
 	}
 	if err := json.Unmarshal(env.Result, out); err != nil {
-		return fmt.Errorf("%w: decode %s result: %v", ErrRPC, method, err)
+		return fmt.Errorf("%w: decode %s result: %w", ErrRPC, method, err)
 	}
 	return nil
 }
@@ -325,7 +325,7 @@ func invokeNameEnvelope(contractBytes []byte) []byte {
 func decodeScString(s string) (string, error) {
 	raw, err := base64.StdEncoding.DecodeString(s)
 	if err != nil {
-		return "", fmt.Errorf("%w: name() result is not base64: %v", ErrRPC, err)
+		return "", fmt.Errorf("%w: name() result is not base64: %w", ErrRPC, err)
 	}
 	if len(raw) < 8 {
 		return "", fmt.Errorf("%w: name() result is %d bytes", ErrRPC, len(raw))
