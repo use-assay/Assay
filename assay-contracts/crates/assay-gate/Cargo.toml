@@ -8,12 +8,12 @@ license.workspace = true
 crate-type = ["lib"]
 
 [dependencies]
-soroban-sdk = "29.0.1"
+soroban-sdk = "30.0.0"
 
 # Only the tests need testutils; the library itself stays a plain no_std
 # dependency an integrator's contract can pull in.
 [dev-dependencies]
-soroban-sdk = { version = "29.0.1", features = ["testutils"] }
+soroban-sdk = { version = "30.0.0", features = ["testutils"] }
 # Only the tests depend on the registry crate, to register the real contract
 # and call it through this crate's client (same pattern as example-gate).
 assay-safety-registry = { path = "../../contracts/safety-registry" }
