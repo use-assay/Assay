@@ -39,6 +39,21 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # Differential verification reads on-chain attestations for assets whose
+      # deployed SAC address must be derived with the Stellar CLI. Pin the same
+      # verified CLI archive used by the contract CI job so the scheduled scan
+      # does not turn those assets into avoidable inconclusive results.
+      - name: install stellar CLI
+        run: |
+          set -eu
+          version=28.1.0
+          archive="stellar-cli-${version}-x86_64-unknown-linux-gnu.tar.gz"
+          curl -fsSLO "https://github.com/stellar/stellar-cli/releases/download/v${version}/${archive}"
+          echo "c1680deee94301d33ada7a17f98411e642a4248c727afbd2e43050d345746462  ${archive}" | sha256sum -c -
+          tar -xzf "$archive"
+          sudo install -m 0755 stellar /usr/local/bin/stellar
+          stellar --version
+
       - name: build assay
         run: go build -o assay ./cmd/assay
 

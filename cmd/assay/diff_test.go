@@ -169,3 +169,21 @@ func TestDiffRejectsTwoArgumentsOnly(t *testing.T) {
 		t.Fatal("diff accepted one report; want a usage error")
 	}
 }
+
+func TestDiffReadsSavedReportWithUnevaluatedSeverity(t *testing.T) {
+	rep := testReport()
+	rep.SchemaVersion = mechanics.ReportSchemaVersion
+	rep.Severity = mechanics.Unevaluated
+	rep.Base = mechanics.Unevaluated
+
+	dir := t.TempDir()
+	a := writeReport(t, dir, "a.json", rep)
+	b := writeReport(t, dir, "b.json", rep)
+	d, out, _, _ := deps(nil, nil)
+	if err := runWith([]string{"diff", a, b}, d); err != nil {
+		t.Fatalf("diff rejected an unevaluated saved report: %v", err)
+	}
+	if !strings.Contains(out.String(), "unevaluated") {
+		t.Errorf("diff output omitted the decoded severity:\n%s", out.String())
+	}
+}

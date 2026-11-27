@@ -141,6 +141,10 @@ except Exception:
 state = d.get("state") or ""
 reason = (d.get("reason") or "").replace("\t", " ")
 if state:
+    if state == "disagreement":
+        primary = json.dumps(d.get("primary"), sort_keys=True, separators=(",", ":"))
+        secondary = json.dumps(d.get("secondary"), sort_keys=True, separators=(",", ":"))
+        reason += f"; scanner flags={primary}; Soroban RPC flags={secondary}"
     print(state + "\t" + reason)
 ' 2>/dev/null)" || true
     fi

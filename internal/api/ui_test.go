@@ -2,9 +2,63 @@ package api_test
 
 import (
 	"os"
+	"regexp"
+	"sort"
 	"strings"
 	"testing"
+
+	"github.com/use-assay/assay/internal/mechanics"
 )
+
+func TestCheckLabelMatchesEngineChecks(t *testing.T) {
+	src, err := os.ReadFile("ui/index.html")
+	if err != nil {
+		t.Fatalf("read ui/index.html: %v", err)
+	}
+
+	object := regexp.MustCompile(`(?s)const CHECK_LABEL = \{(.*?)\n\};`).FindSubmatch(src)
+	if len(object) != 2 {
+		t.Fatal("ui/index.html does not contain a recognizable CHECK_LABEL object")
+	}
+	keyPattern := regexp.MustCompile(`(?m)^\s*(?:'([^']+)'|([A-Za-z_$][A-Za-z0-9_$]*))\s*:`)
+	labels := make(map[string]struct{})
+	for _, match := range keyPattern.FindAllSubmatch(object[1], -1) {
+		key := match[1]
+		if len(key) == 0 {
+			key = match[2]
+		}
+		labels[string(key)] = struct{}{}
+	}
+
+	// TrustlineCheck runs only for holder scans and is intentionally absent from
+	// mechanics.NewEngine's issuer-only default check set.
+	holderOnlyChecks := []string{"trustline"}
+	expected := append(mechanics.NewEngine().CheckIDs(), holderOnlyChecks...)
+	checks := make(map[string]struct{}, len(expected))
+	for _, id := range expected {
+		checks[id] = struct{}{}
+	}
+
+	var missingLabels, staleLabels []string
+	for id := range checks {
+		if _, ok := labels[id]; !ok {
+			missingLabels = append(missingLabels, id)
+		}
+	}
+	for id := range labels {
+		if _, ok := checks[id]; !ok {
+			staleLabels = append(staleLabels, id)
+		}
+	}
+	sort.Strings(missingLabels)
+	sort.Strings(staleLabels)
+	if len(missingLabels) > 0 {
+		t.Errorf("CHECK_LABEL is missing engine check IDs: %s", strings.Join(missingLabels, ", "))
+	}
+	if len(staleLabels) > 0 {
+		t.Errorf("CHECK_LABEL contains IDs with no engine check: %s", strings.Join(staleLabels, ", "))
+	}
+}
 
 // TestUIIndexBuildsDOMWithoutInnerHTML enforces the invariant issue #418
 // established: issuer-controlled strings (directory name, domain, toml claims)
