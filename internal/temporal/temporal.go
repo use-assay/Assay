@@ -31,7 +31,6 @@
 package temporal
 
 import (
-	"sort"
 	"time"
 
 	"github.com/use-assay/assay/internal/mechanics"
@@ -230,6 +229,10 @@ func finish(t Transition) Transition {
 // after reading history that turns out to contain a single entry, which is the
 // difference between "we have looked twice and nothing moved" and "we have
 // looked once".
+//
+// Of sees only the last pair. A change older than that — a capability added
+// and removed again before the latest scan — is invisible here; All returns
+// every adjacent transition and Summarize names every bit held at any point.
 func Of(observations []Observation) Transition {
 	if len(observations) < 2 {
 		var only Observation
@@ -239,10 +242,7 @@ func Of(observations []Observation) Transition {
 		return Between(only, Observation{})
 	}
 
-	ordered := append([]Observation(nil), observations...)
-	sort.SliceStable(ordered, func(i, j int) bool {
-		return ordered[i].At.Before(ordered[j].At)
-	})
+	ordered := ordered(observations)
 	return Between(ordered[len(ordered)-2], ordered[len(ordered)-1])
 }
 

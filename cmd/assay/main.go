@@ -10,8 +10,10 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -24,6 +26,7 @@ import (
 	// HTTP endpoint, a different thing.
 	historystore "github.com/use-assay/assay/internal/history"
 	"github.com/use-assay/assay/internal/mechanics"
+	"github.com/use-assay/assay/internal/registry"
 	"github.com/use-assay/assay/internal/replay"
 	"github.com/use-assay/assay/internal/scan"
 	"github.com/use-assay/assay/internal/temporal"
@@ -112,6 +115,7 @@ func usage(w io.Writer) {
                                   compare a stored hash with canonical preimage bytes
   assay checks                    print every check's ID and description
   assay serve [-addr] [-history PATH] [-history-retention N] [-observe FILE] [-observe-interval DURATION]
+              [-attested FILE [-registry-rpc URL] [-staleness-window D]]
                                   serve the HTTP API and UI
   assay version                   print scanner identity, preimage encodings
                                   and build (VCS, Go) information
@@ -162,6 +166,13 @@ The serve command additionally accepts:
                           interval between scheduled scans (default 6h)
   -trusted-proxies CIDR[,CIDR...]
                           trusted reverse proxy CIDRs for rate limiting
+  -attested FILE          attested-set file (attested.json format); /readyz
+                          then reports the registry's attested, unattested
+                          and stale counts for that set
+  -registry-rpc URL       Soroban RPC endpoint -attested reads through
+                          (env ASSAY_RPC_URL)
+  -staleness-window D     attestation age that counts as stale (default: the
+                          file's cadence)
 `)
 }
 
@@ -565,9 +576,13 @@ func runHistory(args []string, d commandDeps) error {
 
 	if *serverURL != "" {
 		// Fetch history from server.
-		hist, err = fetchHistoryFromServer(ctx, *serverURL, asset.String())
+		var summary temporal.Summary
+		hist, summary, err = fetchHistoryFromServer(ctx, *serverURL, asset.String())
 		if err != nil {
 			return err
+		}
+		if len(hist) > 0 {
+			printHistorySummary(d.stderr, summary)
 		}
 	} else {
 		// Compute history from local scan (existing behavior).
@@ -603,8 +618,14 @@ func runHistory(args []string, d commandDeps) error {
 }
 
 // fetchHistoryFromServer fetches history from a running assay server's
-// /api/v1/history endpoint.
-func fetchHistoryFromServer(ctx context.Context, serverURL, asset string) ([]historyEntry, error) {
+// /api/v1/history endpoint and derives, from the recorded observations, the
+// transition into each one and a summary of the whole sequence.
+//
+// The transitions are recomputed with temporal.All over the returned page
+// rather than read from the response, so every adjacent pair is compared —
+// including a capability added and removed again before the latest scan, which
+// a last-pair comparison would show as no change.
+func fetchHistoryFromServer(ctx context.Context, serverURL, asset string) ([]historyEntry, temporal.Summary, error) {
 	// Ensure serverURL has a scheme.
 	if !strings.HasPrefix(serverURL, "http://") && !strings.HasPrefix(serverURL, "https://") {
 		serverURL = "http://" + serverURL
@@ -612,86 +633,102 @@ func fetchHistoryFromServer(ctx context.Context, serverURL, asset string) ([]his
 	// Trim trailing slash.
 	serverURL = strings.TrimSuffix(serverURL, "/")
 
-	url := serverURL + "/api/v1/history?asset=" + asset
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	reqURL := serverURL + "/api/v1/history?asset=" + url.QueryEscape(asset)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("history: build request: %w", err)
+		return nil, temporal.Summary{}, fmt.Errorf("history: build request: %w", err)
 	}
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("history: request failed: %w", err)
+		return nil, temporal.Summary{}, fmt.Errorf("history: request failed: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("history: server returned %d: %s", resp.StatusCode, string(body))
+		return nil, temporal.Summary{}, fmt.Errorf("history: server returned %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Parse the server's history response.
+	// The server returns observations in the temporal.Observation shape, so
+	// they decode into that type directly and feed the same detectors the API
+	// uses. Only the fields the CLI reads are declared.
 	var serverResp struct {
-		State        string `json:"state"`
-		Reason       string `json:"reason,omitempty"`
-		Count        int    `json:"count"`
-		Observations []struct {
-			Asset              string    `json:"asset"`
-			At                 time.Time `json:"at"`
-			Mechanics          int       `json:"mechanics"`
-			BaseSeverity       string    `json:"base_severity"`
-			Severity           string    `json:"severity"`
-			Undetermined       bool      `json:"undetermined"`
-			UndeterminedChecks []string  `json:"undetermined_checks"`
-			Reason             string    `json:"reason,omitempty"`
-		} `json:"observations"`
-		Transitions []struct {
-			State          string   `json:"state"`
-			Reason         string   `json:"reason"`
-			AddedNames     []string `json:"added_names"`
-			RemovedNames   []string `json:"removed_names"`
-			Attribution    string   `json:"attribution"`
-			SeverityBefore string   `json:"severity_before"`
-			SeverityAfter  string   `json:"severity_after"`
-			Accountability struct {
-				From    string `json:"from"`
-				To      string `json:"to"`
-				Changed bool   `json:"changed"`
-				State   string `json:"state"`
-			} `json:"accountability"`
-		} `json:"transitions"`
-		LatestAt      *time.Time `json:"latest_at,omitempty"`
-		LatestAgeSecs *int64     `json:"latest_age_secs,omitempty"`
-		Retention     int        `json:"retention"`
+		Observations []temporal.Observation `json:"observations"`
 	}
-
 	if err := json.NewDecoder(resp.Body).Decode(&serverResp); err != nil {
-		return nil, fmt.Errorf("history: decode response: %w", err)
+		return nil, temporal.Summary{}, fmt.Errorf("history: decode response: %w", err)
 	}
 
-	// Convert server response to historyEntry format.
-	hist := make([]historyEntry, 0, len(serverResp.Observations))
-	for _, obs := range serverResp.Observations {
-		// Determine transition for this observation.
-		// The server response includes transitions array, but we need to map
-		// each observation to its transition. For simplicity, we use the
-		// observation's severity and a generic reason.
-		transition := "unknown"
-		reason := obs.BaseSeverity
-		if obs.Undetermined {
-			reason = "undetermined: " + strings.Join(obs.UndeterminedChecks, ", ")
+	obs := append([]temporal.Observation(nil), serverResp.Observations...)
+	sort.SliceStable(obs, func(i, j int) bool { return obs[i].At.Before(obs[j].At) })
+	transitions := temporal.All(obs)
+
+	hist := make([]historyEntry, 0, len(obs))
+	for i, o := range obs {
+		entry := historyEntry{
+			Asset:    o.Asset.String(),
+			Severity: o.Severity.String(),
+			Time:     o.At,
 		}
-
-		hist = append(hist, historyEntry{
-			Asset:      obs.Asset,
-			Severity:   obs.Severity,
-			Transition: transition,
-			Reason:     reason,
-			Time:       obs.At,
-		})
+		if i == 0 {
+			entry.Transition = "first"
+			entry.Reason = "earliest observation returned; there is nothing earlier to compare it with"
+		} else {
+			entry.Transition, entry.Reason = describeTransition(transitions[i-1])
+		}
+		if o.Undetermined {
+			entry.Reason = "undetermined (" + strings.Join(o.UndeterminedChecks, ", ") + "): " + entry.Reason
+		}
+		hist = append(hist, entry)
 	}
+	return hist, temporal.Summarize(obs), nil
+}
 
-	return hist, nil
+// describeTransition reduces a derived transition to the term and reason the
+// history view prints. A transition that could not be derived prints its state
+// (unknown or missing), never "no change".
+func describeTransition(t temporal.Transition) (string, string) {
+	if t.State != temporal.Valid {
+		return string(t.State), t.Reason
+	}
+	var parts []string
+	if len(t.AddedNames) > 0 {
+		parts = append(parts, "added "+strings.Join(t.AddedNames, ", "))
+	}
+	if len(t.RemovedNames) > 0 {
+		parts = append(parts, "removed "+strings.Join(t.RemovedNames, ", "))
+	}
+	if len(parts) == 0 {
+		return "no change", "no capability bit moved; severity " +
+			t.SeverityBefore.String() + " -> " + t.SeverityAfter.String()
+	}
+	return strings.Join(parts, "; "), "severity " +
+		t.SeverityBefore.String() + " -> " + t.SeverityAfter.String() +
+		" (" + string(t.Attribution) + ")"
+}
+
+// printHistorySummary writes the whole-sequence capability summary. It goes to
+// stderr so the JSON and -raw output on stdout keep their shape.
+func printHistorySummary(w io.Writer, s temporal.Summary) {
+	none := func(n []string) string {
+		if len(n) == 0 {
+			return "none"
+		}
+		return strings.Join(n, ", ")
+	}
+	_, _ = fmt.Fprintf(w, "assay history: %d observations, state %s\n", s.Count, s.State)
+	_, _ = fmt.Fprintf(w, "  capabilities held at any point: %s\n", none(s.HeldNames))
+	_, _ = fmt.Fprintf(w, "  held now:                       %s\n", none(s.LatestNames))
+	if len(s.WithdrawnNames) > 0 {
+		_, _ = fmt.Fprintf(w, "  held earlier, not now:          %s "+
+			"(trustlines opened while held may still carry them; see CAP-0035)\n",
+			none(s.WithdrawnNames))
+	}
+	if s.Reason != "" {
+		_, _ = fmt.Fprintf(w, "  %s\n", s.Reason)
+	}
 }
 
 // history extracts the observation history from a report. The observations are
@@ -780,6 +817,12 @@ func runServe(args []string, log *slog.Logger) error {
 		"interval between scheduled scans of the asset list")
 	trustedProxies := fs.String("trusted-proxies", "",
 		"comma-separated CIDRs of trusted reverse proxies whose X-Forwarded-For headers are trusted")
+	attestedPath := fs.String("attested", "",
+		"attested-set file (attested.json format) whose registry freshness /readyz reports; empty leaves it unconfigured")
+	registryRPC := fs.String("registry-rpc", envOr("ASSAY_RPC_URL", registry.DefaultRPCURL),
+		"Soroban RPC endpoint -attested reads the registry through (env ASSAY_RPC_URL)")
+	stalenessWindow := fs.Duration("staleness-window", 0,
+		"age after which an attestation in the -attested set counts as stale; 0 uses the file's cadence")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
@@ -807,6 +850,12 @@ func runServe(args []string, log *slog.Logger) error {
 		srv.TrustedProxies = proxies
 	}
 	srv.Scanner = newScanner(assetLists(), cache())
+	// Set before srv.Handler(), which builds the readiness prober once and
+	// captures the registry prober then.
+	srv.RegistryStaleness = registryStalenessProber(*attestedPath, *registryRPC, *stalenessWindow)
+	if p := srv.RegistryStaleness; p != nil && p.ConfigurationError != "" {
+		log.Warn("serve: registry staleness misconfigured; /readyz will report it as unknown", "err", p.ConfigurationError)
+	}
 	historyStore, err := openHistory(*historyPath, *historyRetention)
 	if err != nil {
 		return err

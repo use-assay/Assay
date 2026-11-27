@@ -336,6 +336,53 @@ jobs:
           tar -xzf "$RUNNER_TEMP/$tarball" -C "$RUNNER_TEMP" actionlint
           "$RUNNER_TEMP/actionlint" -color -shellcheck= -pyflakes=
 
+  # examples/systemd/assay.service is documented in docs/serving.md as passing
+  # systemd-analyze verify; this job keeps that claim true. verify checks that
+  # ExecStart's binary exists, so the job builds and installs it first.
+  systemd-unit:
+    name: systemd unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: build and install assay
+        run: |
+          go build -o assay ./cmd/assay
+          sudo install -m 0755 assay /usr/local/bin/assay
+      - name: systemd-analyze verify
+        run: |
+          sudo install -m 0644 examples/systemd/assay.service /etc/systemd/system/assay.service
+          sudo systemd-analyze verify /etc/systemd/system/assay.service
+
+  # Translations under docs/i18n/ record the English commit they were made
+  # from. This job lists any that have fallen behind (a warning annotation on
+  # a PR that touches its English source) and fails when docs/i18n/README.md
+  # and a translation's own note disagree. It reads history back to the
+  # recorded commit, so this job alone checks out with fetch-depth: 0.
+  translations:
+    name: Translations
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: test the translation check
+        run: make test-check-translations
+
+      - name: check translations
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ -n "$BASE_REF" ]; then
+            ./scripts/check-translations.sh --changed-since "origin/$BASE_REF"
+          else
+            ./scripts/check-translations.sh
+          fi
+
   contract:
     name: Soroban contract
     runs-on: ubuntu-latest

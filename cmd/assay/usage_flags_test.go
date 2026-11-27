@@ -201,3 +201,49 @@ func registeredFlagsForCommands(t *testing.T) map[string]map[string]bool {
 	}
 	return registered
 }
+
+// TestServingDocNamesOnlyServeFlags is the acceptance check for
+// docs/serving.md (#600): every flag the operator guide names in backticks
+// exists on `assay serve`, so the guide cannot tell an operator to pass a flag
+// that exits with "flag provided but not defined". The unit in
+// examples/systemd is held to the same rule for its ExecStart line.
+func TestServingDocNamesOnlyServeFlags(t *testing.T) {
+	registered := registeredFlagsForCommands(t)["serve"]
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	root := filepath.Join(filepath.Dir(thisFile), "..", "..")
+
+	docFlag := regexp.MustCompile("`-([a-z][a-z-]*)")
+	unitFlag := regexp.MustCompile(`(?:^|\s)-([a-z][a-z-]*)\b`)
+	for _, tc := range []struct {
+		path string
+		re   *regexp.Regexp
+	}{
+		{filepath.Join(root, "docs", "serving.md"), docFlag},
+		{filepath.Join(root, "examples", "systemd", "assay.service"), unitFlag},
+	} {
+		b, err := os.ReadFile(tc.path)
+		if err != nil {
+			t.Fatalf("read %s: %v", tc.path, err)
+		}
+		text := string(b)
+		if strings.HasSuffix(tc.path, ".service") {
+			// Only the ExecStart command line carries serve flags.
+			start := strings.Index(text, "\nExecStart=")
+			end := strings.Index(text[start:], "\n# ")
+			text = text[start : start+end]
+		}
+		seen := 0
+		for _, m := range tc.re.FindAllStringSubmatch(text, -1) {
+			seen++
+			if !registered[m[1]] {
+				t.Errorf("%s names -%s, which assay serve does not register", filepath.Base(tc.path), m[1])
+			}
+		}
+		if seen == 0 {
+			t.Errorf("%s names no serve flags; the check is reading the wrong text", filepath.Base(tc.path))
+		}
+	}
+}

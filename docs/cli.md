@@ -27,6 +27,7 @@ usage:
                                   compare a stored hash with canonical preimage bytes
   assay checks                    print every check's ID and description
   assay serve [-addr] [-history PATH] [-history-retention N] [-observe FILE] [-observe-interval DURATION]
+              [-attested FILE [-registry-rpc URL] [-staleness-window D]]
                                   serve the HTTP API and UI
   assay version                   print scanner identity, preimage encodings
                                   and build (VCS, Go) information
@@ -77,6 +78,13 @@ The serve command additionally accepts:
                           interval between scheduled scans (default 6h)
   -trusted-proxies CIDR[,CIDR...]
                           trusted reverse proxy CIDRs for rate limiting
+  -attested FILE          attested-set file (attested.json format); /readyz
+                          then reports the registry's attested, unattested
+                          and stale counts for that set
+  -registry-rpc URL       Soroban RPC endpoint -attested reads through
+                          (env ASSAY_RPC_URL)
+  -staleness-window D     attestation age that counts as stale (default: the
+                          file's cadence)
 ```
 
 Commands that consume SEP-0042 asset lists (`scan`, `attestation`, `history`,
@@ -348,6 +356,23 @@ Semantics:
 - **unknown state** — an observation without a recognized structured outcome
   prints with transition `unknown` rather than being dropped.
 
+With `-server URL` the entries are the observations a running `assay serve` has
+recorded, oldest first, and each entry's transition is derived from the
+observation before it with
+[`temporal.All`](transitions.md#sequences-every-adjacent-pair) — `first`,
+`added …`, `removed …`, `no change`, or `unknown` when either side is
+undetermined. Every adjacent pair is compared, not only the last two, so a
+capability added and removed again between scans stays visible. A summary of
+the whole sequence goes to stderr, leaving stdout's JSON and `-raw` shapes
+unchanged:
+
+```
+assay history: 3 observations, state valid
+  capabilities held at any point: auth_clawback_enabled
+  held now:                       none
+  held earlier, not now:          auth_clawback_enabled (trustlines opened while held may still carry them; see CAP-0035)
+```
+
 ## assay verify-preimage
 
 Compares a stored SHA-256 evidence hash with canonical preimage bytes. `PREIMAGE`
@@ -395,13 +420,16 @@ sep1-domain	Checks whether the issuer's advertised home_domain publishes a stell
 
 Serves the HTTP API and UI. The API exposes the same reports the CLI prints;
 see `docs/integrating.md` for what a consumer reads out of it, and
-[history.md](history.md) for the observation history endpoint.
+[history.md](history.md) for the observation history endpoint. **Running an
+instance** — the full flag table, where state lives and how to back it up,
+which probe to wire to what, metrics, rate limits, a reverse-proxy example and
+a hardened systemd unit — is covered in [serving.md](serving.md).
 
 ```
 ./assay serve -addr :8080
 ./assay serve -addr :8080 -history /var/lib/assay/history.jsonl
 ./assay serve -addr :8080 -history /var/lib/assay/history.jsonl -history-retention 1024
-./assay serve -addr :8080 -scan-rate 10 -scan-burst 20
+./assay serve -addr 127.0.0.1:8080 -trusted-proxies 127.0.0.1/32 -attested attested.json
 ```
 
 Each successful `GET /api/v1/scan` records an observation, and
@@ -415,20 +443,12 @@ policy is in [history.md](history.md).
 
 **Rate limiting.** `GET /api/v1/exposure` is always rate-limited (default: 5
 requests burst, 1 per second per client address) because one request fans out
-to a full scan per asset. `GET /api/v1/scan` is **not rate-limited by default**
-so local and development use works without configuration. For public deployments
-set `-scan-rate` and `-scan-burst` to protect the shared Horizon and
-StellarExpert upstreams from being hammered under Assay's User-Agent:
-
-```
--scan-burst N  initial burst of N scan requests allowed per client address
-               (default: 0, off)
--scan-rate F   token-bucket refill rate in requests/second per client address
-               (requires -scan-burst; default: 0, off)
-```
-
-A refused scan returns `429 Too Many Requests` with a `Retry-After` header
-giving the number of seconds to wait.
+to a full scan per asset; a refused request returns `429 Too Many Requests`
+with a `Retry-After` header. `GET /api/v1/scan` is **not rate-limited** by
+`assay serve`, so local and development use works without configuration. A
+public deployment must limit it at the reverse proxy to protect the shared
+Horizon and StellarExpert upstreams; [serving.md](serving.md#reverse-proxy) has
+an example.
 
 Behind a reverse proxy or load balancer, configure `-trusted-proxies CIDR[,CIDR...]`
 so rate limiters key on the real client IP from `X-Forwarded-For` rather than

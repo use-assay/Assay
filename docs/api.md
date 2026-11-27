@@ -197,10 +197,11 @@ Status codes:
 - `400 Bad Request`: invalid asset code or issuer, missing `?asset=`, or an
   identifier naming the native asset — see above.
 - `404 Not Found`: asset not found on the ledger.
-- `429 Too Many Requests`: scan rate limit exceeded (only when configured via
-  `--scan-rate`; not applied by default). `Retry-After` gives the wait in
-  seconds. Public deployments should configure this to protect the shared
-  Horizon and StellarExpert upstreams.
+- `429 Too Many Requests`: scan rate limit exceeded (only when the embedding
+  program sets `Server.ScanLimiter`; `assay serve` does not). `Retry-After`
+  gives the wait in seconds. Public deployments of `assay serve` should limit
+  this endpoint at the reverse proxy to protect the shared Horizon and
+  StellarExpert upstreams ([serving.md](serving.md#rate-limits)).
 - `502 Bad Gateway`: the scan failed on an underlying network or upstream
   error; the message names the failing source.
 
@@ -500,6 +501,29 @@ Response:
 - `upstreams[]`: per source, `name`, `kind` (`horizon` or `consumed`),
   `reachable`, `probe_error` (the failure verbatim, when unreachable), and
   `probe_url` (so the probe is reproducible from the report alone).
+- `registry_staleness`: how fresh the on-chain attested set is. Informational:
+  it never changes `status` or the HTTP code, so a registry or RPC outage
+  cannot pull a replica out of rotation. Fields: `status` (`current`, `stale`
+  when any attestation is older than the window, `incomplete` when a set
+  member has no attestation, or `unknown`), `reason` (present when
+  `unknown`), `checked_at`, `window_secs`, `asset_count`, `attested_count`,
+  `unattested_count`, `stale_count`, and `oldest_attestation` (`asset`,
+  `attested_at`, `age_secs`).
+
+  It is configured with `assay serve -attested FILE`, where `FILE` is in the
+  [`attested.json`](../attested.json) format. The server derives each asset's
+  Stellar Asset Contract address for the file's `network`, reads
+  `get_safety` from the file's `contract_id` through `-registry-rpc URL`
+  (default `$ASSAY_RPC_URL`, else the SDF testnet RPC), and counts an
+  attestation as stale once it is older than `-staleness-window D` (default:
+  the file's `cadence`). Without `-attested`, `status` is `unknown` with
+  reason `registry staleness is not configured`. A file that cannot be read
+  or does not validate does not stop the server: `status` is `unknown` and
+  `reason` is the parse error, and the server logs it at startup.
+
+  ```sh
+  assay serve -attested attested.json -staleness-window 36h
+  ```
 
 Status codes:
 
