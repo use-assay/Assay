@@ -1,4 +1,4 @@
-# The CLI
+﻿# The CLI
 
 `assay` is one binary with several subcommands. Commands that emit a document
 (`scan`, `attestation`, `history`) print human-readable JSON by default, and

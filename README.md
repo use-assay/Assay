@@ -136,6 +136,7 @@ Run the scanner and the registry.
 | [docs/attester-key.md](docs/attester-key.md) | Attester key custody, loss/compromise response, rotation limits |
 | [docs/attester.md](docs/attester.md) | `assay-attester`: the keyless dry-run and the issuer watcher that run ahead of the attestation writer |
 | [docs/attestation-correction.md](docs/attestation-correction.md) | Runbook: treating a wrong attestation as an incident and correcting it |
+| [docs/reattestation.md](docs/reattestation.md) | Runbook: re-attesting the full corpus when attestations age out |
 | [docs/reattestation.md](docs/reattestation.md) | Runbook: refreshing the attested corpus before attestations age out of the gate's window |
 | [docs/source-outage.md](docs/source-outage.md) | Runbook: what to do when a scan reports an upstream source failure |
 | [docs/reproducibility-mismatch.md](docs/reproducibility-mismatch.md) | Runbook: the reproducibility job reports a mismatch |

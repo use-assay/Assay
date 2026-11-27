@@ -357,6 +357,25 @@ Each subject directory also holds its `metadata.json`, which records those
 files with their source URLs and capture dates alongside the expected verdict
 — see [Subject metadata](#subject-metadata).
 
+## Release artifact
+
+Every tagged release publishes `eval-dataset-vX.Y.Z.tar.gz` alongside the
+scanner binary. The archive contains the full contents of
+`internal/mechanics/testdata` — fixtures, `manifest.json`, `PROVENANCE.md`,
+and the dataset `LICENSE` — unpacked under an `eval-dataset/` root.
+
+Its SHA-256 checksum is recorded in `assay.sha256` on the same release, so a
+consumer can verify the download before citing any fixture:
+
+```sh
+# Verify the binary and the dataset together
+sha256sum -c assay.sha256
+```
+
+The `LICENSE` inside the archive is CC-BY-4.0, covering the fixture metadata
+only; Assay source code remains Apache-2.0 and upstream payloads remain
+subject to their providers' terms.
+
 ## Cross-version comparison
 
 Any change to a check can move verdicts, and pass/fail against fixed

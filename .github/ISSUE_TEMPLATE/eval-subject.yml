@@ -1,30 +1,41 @@
-name: Eval subject
+name: Eval subject proposal
 description: Propose a new asset for the labelled evaluation set.
-labels: ["area:eval"]
+labels: ["area:data", "Stellar Wave"]
 body:
   - type: markdown
     attributes:
       value: >-
-        The eval set measures the **judgment** of the severity model — whether
-        it separates a trap from a legitimate compliance feature. Each subject
-        must carry a label and evidence for it. A subject without evidence
-        cannot be added, because the label would be an assertion rather than a
-        measurement.
+        Every subject must prove a distinct judgment boundary — it is not in
+        the set for the asset's reputation but for what its captured evidence
+        proves about the classifier. A proposal without all three parts of
+        evidence (asset, source records, and counter-example) is incomplete.
 
 
-        Review the existing set and label criteria in
-        [docs/eval.md](https://github.com/use-assay/Assay/blob/main/docs/eval.md)
-        before filing. Labels are `legitimate`, `legitimate (uses the flags)`,
-        `trap`, `degraded`, or `synthetic`.
+        Label criteria are in
+        [docs/eval.md](https://github.com/use-assay/Assay/blob/main/docs/eval.md#dataset-labeling-and-refresh).
 
   - type: input
     id: asset
     attributes:
-      label: Asset (CODE-ISSUER)
+      label: Asset identifier
       description: >-
-        The asset to add, in `CODE-ISSUER` form. Use pubnet addresses unless
-        proposing a synthetic subject.
-      placeholder: "USDC-GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+        CODE-ISSUER, e.g.
+        USDC-GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN.
+        A credit asset only; the native asset cannot be scanned or attested.
+      placeholder: "CODE-GISSUER..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: What the subject proves
+      description: >-
+        State the judgment boundary this subject pins. "It is a scam" is not
+        sufficient — name the classifier behaviour it would force: e.g.
+        "proves the mutability check does not over-flag when auth_immutable
+        is set by a legitimate issuer". The why is printed on eval failure so
+        a future maintainer knows what they broke.
     validations:
       required: true
 
@@ -33,57 +44,61 @@ body:
     attributes:
       label: Proposed label
       description: >-
-        The expected outcome this subject measures. `legitimate (uses the flags)`
-        is the critical case: the model must not escalate an asset solely because
-        it carries authorization flags.
+        **Legitimate** — documented issuer identity or compliance use case.
+        **Legitimate (uses flags)** — legitimate but carries auth_revocable
+        or auth_clawback_enabled. **Trap** — affirmative reputation evidence
+        of malicious or unsafe issuer; capability alone never qualifies.
+        **Degraded** — captured while a required source was unavailable;
+        neither legitimate nor trap.
       options:
-        - "legitimate"
-        - "legitimate (uses the flags)"
-        - "trap"
-        - "degraded"
-        - "synthetic"
-    validations:
-      required: true
-
-  - type: textarea
-    id: why
-    attributes:
-      label: Why this subject belongs in the set
-      description: >-
-        What gap in the existing set does this subject fill? Name the scenario
-        it pins — do not say "another legitimate stablecoin" if USDC and USDZ
-        already cover that case.
+        - legitimate
+        - "legitimate (uses flags)"
+        - trap
+        - degraded
     validations:
       required: true
 
   - type: textarea
     id: evidence
     attributes:
-      label: Evidence for the label
+      label: Captured evidence supporting the label
       description: >-
-        Live-source verification of the flags, `home_domain`, and SEP-0001
-        status that justify the proposed label. Captured records preferred over
-        links that may change. Cite the field names from the Horizon account
-        response or the TOML — not reputation or folklore.
+        Cite the source records that justify the label.
+
+
+        **Legitimate**: the domain claiming the asset, the SEP-1 field that
+        claims it, and any regulatory or directory evidence.
+
+
+        **Legitimate (uses flags)**: as above, plus why the flag use is
+        compliant (e.g. regulated stablecoin with FSCA / FinCEN licence, or
+        documented freeze-and-recover policy).
+
+
+        **Trap**: the affirmative reputation record — StellarExpert tag,
+        blocklist entry, or documented impersonation case — with its URL and
+        capture date. Capability alone (e.g. auth_revocable is set) never
+        justifies this label.
+
+
+        **Degraded**: which source was unreachable and what error it
+        returned; include the error marker text that would go in
+        directory.err or blocked.err.
     validations:
       required: true
 
   - type: textarea
-    id: source_urls
+    id: sources
     attributes:
       label: Source URLs
       description: >-
-        Links to the Horizon account record, the stellar.toml, and any
-        StellarExpert or regulatory page consulted. One URL per line.
+        One URL per line: the stellar.toml location, the Horizon account
+        endpoint, the StellarExpert directory URL, and any other source
+        consulted. These become the metadata.json entries and must be
+        reachable so a re-capture can verify provenance.
+      placeholder: |
+        https://example.com/.well-known/stellar.toml
+        https://horizon.stellar.org/accounts/G...
+        https://api.stellar.expert/explorer/public/asset/CODE-G...
     validations:
-      required: false
-
-  - type: textarea
-    id: fixture
-    attributes:
-      label: Proposed fixture path
-      description: >-
-        Suggested directory name under `internal/mechanics/testdata/`, following
-        the `<subject>-<brief-label>` convention (e.g. `usdc-revocable-regulated`).
-    validations:
-      required: false
+      required: true
