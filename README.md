@@ -121,10 +121,14 @@ Read or change the code, or review a design.
 | [docs/testing.md](docs/testing.md) | Package-level testing guide: which test belongs where, and how CI runs them |
 | [docs/automerge.md](docs/automerge.md) | How the automerge bot evaluates and merges pull requests, and how to dry-run changes |
 | [docs/mutation-catalogue.md](docs/mutation-catalogue.md) | The mutation catalogue and baseline: which mutations were applied by hand, and what the tests caught |
+| [docs/automerge.md](docs/automerge.md) | How the pull-request automerge bot decides whether to merge or leave guidance |
 | [docs/sep-asset-safety-attestation.md](docs/sep-asset-safety-attestation.md) | Draft SEP for the asset safety attestation interface |
 | [docs/sessions/2026-08-10-mvp-core.md](docs/sessions/2026-08-10-mvp-core.md) | Session log: empty repo to a working scanner, eval and contract |
 | [docs/sessions/2026-08-15-testnet-deployment.md](docs/sessions/2026-08-15-testnet-deployment.md) | Session log: the contract from passing local tests to live on testnet |
 | [docs/sessions/2026-09-17-audit-and-provenance.md](docs/sessions/2026-09-17-audit-and-provenance.md) | Session log: an integrity audit of what is merged and how to reproduce it |
+| [docs/sessions/2026-10-05-severity-and-accountability.md](docs/sessions/2026-10-05-severity-and-accountability.md) | Session log: structural separation of severity and accountability |
+| [docs/sessions/2026-10-18-build-and-reproducibility.md](docs/sessions/2026-10-18-build-and-reproducibility.md) | Session log: Go support floors and reproducible attestations |
+| [docs/sessions/2026-10-23-admin-transfer.md](docs/sessions/2026-10-23-admin-transfer.md) | Session log: a two-step, observable registry admin handover |
 
 ### For operators
 

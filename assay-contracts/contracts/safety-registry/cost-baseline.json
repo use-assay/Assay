@@ -2,15 +2,15 @@
   "entrypoints": {
     "attest": {
       "disk_read_bytes": 0,
-      "instructions": 64024,
-      "mem_bytes": 9753,
+      "instructions": 67353,
+      "mem_bytes": 10022,
       "write_bytes": 384
     },
-    "attest_many_50": {
+    "attest_many_30": {
       "disk_read_bytes": 0,
-      "instructions": 3669695,
-      "mem_bytes": 583226,
-      "write_bytes": 15672
+      "instructions": 1908345,
+      "mem_bytes": 283536,
+      "write_bytes": 9432
     },
     "get_safety": {
       "disk_read_bytes": 0,

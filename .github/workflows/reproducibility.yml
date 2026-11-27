@@ -4,9 +4,9 @@ name: Reproducibility
 #
 # This job re-scans the ten attested assets live and diffs each fresh
 # evidence_hash against docs/deployment.md. It is the regression test for
-# #24 (host-specific transport text in the preimage): while #24 is open it is
-# expected to report BERKSHIRE/KALE mismatches from any machine whose DNS
-# resolver differs from the attester's.
+# #24 is covered deterministically: transport/fetch failures are canonicalized
+# before hashing, so a fresh run must distinguish real evidence drift from
+# wording or resolver differences instead of baking host text into the hash.
 #
 # Deliberately NOT on the PR path: it depends on live third-party sources
 # (Horizon, StellarExpert, issuer stellar.toml hosts), so running it per-PR

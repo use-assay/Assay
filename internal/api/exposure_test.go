@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/use-assay/assay/internal/api"
 	"github.com/use-assay/assay/internal/stellarexpert"
@@ -30,6 +31,7 @@ const exposureIssuer = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN
 type exposureHorizonStub struct {
 	trustlines    []string // asset codes the holder's balances array contains
 	missingAssets map[string]bool
+	assetsDelay   time.Duration
 	// accountMissing answers every /accounts request with Horizon's 404, the
 	// shape for an account the ledger does not know.
 	accountMissing bool
@@ -43,6 +45,13 @@ func (h *exposureHorizonStub) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	}
 	switch {
 	case strings.HasPrefix(r.URL.Path, "/assets"):
+		if h.assetsDelay > 0 {
+			select {
+			case <-time.After(h.assetsDelay):
+			case <-r.Context().Done():
+				return
+			}
+		}
 		code := r.URL.Query().Get("asset_code")
 		issuer := r.URL.Query().Get("asset_issuer")
 		if h.missingAssets[code] {
@@ -74,9 +83,14 @@ func (h *exposureHorizonStub) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 // exposure tests never touch the network. The expert stub and the toml
 // round-tripper are the ones outcome_test.go already defines for the package.
 func newExposureServer(t *testing.T, stub *exposureHorizonStub) http.Handler {
+	return newExposureServerWithTimeout(t, stub, 0)
+}
+
+func newExposureServerWithTimeout(t *testing.T, stub *exposureHorizonStub, timeout time.Duration) http.Handler {
 	t.Helper()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	srv := api.NewServer(log)
+	srv.ExposureTimeout = timeout
 
 	hSrv := httptest.NewServer(stub)
 	t.Cleanup(hSrv.Close)
@@ -315,6 +329,46 @@ func TestExposureSurfacesUndeterminedPerAsset(t *testing.T) {
 				t.Errorf("%s: reason set though the scan succeeded: %q", a.Asset.Code, a.Reason)
 			}
 		}
+	}
+}
+
+// TestExposureDeadlineReturnsPartialPage exercises the page deadline with a
+// scaled timeout and a slow upstream. The in-flight asset is marked
+// undetermined, the remaining asset is left for next_cursor, and the HTTP
+// server still has enough write time to return that partial result.
+func TestExposureDeadlineReturnsPartialPage(t *testing.T) {
+	h := newExposureServerWithTimeout(t, &exposureHorizonStub{
+		trustlines:  []string{"TLAA", "TLBB"},
+		assetsDelay: 200 * time.Millisecond,
+	}, 40*time.Millisecond)
+
+	ts := httptest.NewUnstartedServer(h)
+	ts.Config.WriteTimeout = api.DefaultExposureTimeout + 30*time.Second
+	ts.Start()
+	t.Cleanup(ts.Close)
+
+	resp, err := ts.Client().Get(ts.URL + "/api/v1/exposure?account=" + exposureAccount)
+	if err != nil {
+		t.Fatalf("GET exposure: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("close exposure response body: %v", err)
+		}
+	})
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read partial response: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	rec.Code = resp.StatusCode
+	rec.Body.Write(body)
+	page := decodeExposure(t, rec)
+	if page.Count != 1 || !page.Assets[0].Undetermined {
+		t.Fatalf("partial page = count %d, first undetermined %v; want one incomplete asset", page.Count, page.Assets[0].Undetermined)
+	}
+	if page.NextCursor == nil || *page.NextCursor != 1 {
+		t.Fatalf("next_cursor = %v, want 1", page.NextCursor)
 	}
 }
 

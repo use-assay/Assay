@@ -814,13 +814,7 @@ func runServe(args []string, log *slog.Logger) error {
 	srv.History = historyStore
 	defer func() { _ = historyStore.Close() }()
 
-	httpSrv := &http.Server{
-		Addr:              *addr,
-		Handler:           srv.Handler(),
-		ReadHeaderTimeout: 10 * time.Second,
-		WriteTimeout:      60 * time.Second,
-		IdleTimeout:       120 * time.Second,
-	}
+	httpSrv := newHTTPServer(*addr, srv.Handler())
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -858,6 +852,21 @@ func runServe(args []string, log *slog.Logger) error {
 			return fmt.Errorf("serve: shutdown: %w", err)
 		}
 		return nil
+	}
+}
+
+const serverWriteTimeoutMargin = 30 * time.Second
+
+// newHTTPServer keeps the server-level write deadline beyond every handler
+// deadline. In particular, exposure may spend 90 seconds assembling a page;
+// the additional margin leaves time to encode and send its partial response.
+func newHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      api.DefaultExposureTimeout + serverWriteTimeoutMargin,
+		IdleTimeout:       120 * time.Second,
 	}
 }
 

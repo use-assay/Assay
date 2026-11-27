@@ -58,8 +58,8 @@ pub struct Safety {
 pub enum Quorum {
     /// Quorum met: the conservative aggregate of the responding attestors.
     Met(Safety),
-    /// Strictly fewer responding attestors than the threshold (or an invalid
-    /// threshold / attestor set). The payload is the responding count.
+    /// Strictly fewer responding attestors than the threshold. The payload is
+    /// the responding count.
     Unavailable(u32),
     /// Enough attestors responded but they disagree on severity or flags. The
     /// payload is the responding count.

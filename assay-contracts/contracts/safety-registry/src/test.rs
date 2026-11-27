@@ -73,6 +73,7 @@ fn attest_then_read_roundtrips() {
     assert_eq!(got.flags, MECH_AUTH_REVOCABLE);
     assert_eq!(got.attested_at, 1_000);
     assert_eq!(got.evidence_hash, hash(&env));
+    assert_eq!(got.preimage_version, 4);
 }
 
 #[test]
@@ -385,12 +386,12 @@ fn masked_gate_stale_attestation_fails_closed() {
     assert!(client.is_safe_masked(&asset, &POLICY_MASK_CONFISCATION_ONLY, &0));
 }
 
-/// A successful attest emits one event with topics ("attest", asset) and data
-/// (severity, flags, attested_at). Events published by this contract are
-/// isolated with filter_by_contract so any auth-machinery events elsewhere in
-/// the environment do not confuse the assertion.
+/// A successful attest emits one event with topics ("attest", asset) and every
+/// remaining field needed to reconstruct the stored Safety. Events published
+/// by this contract are isolated with filter_by_contract so auth-machinery
+/// events elsewhere in the environment do not confuse the assertion.
 #[test]
-fn attest_emits_event_on_success() {
+fn attest_emits_reconstructable_event_on_success() {
     let (env, client, _) = setup();
     let asset = Address::generate(&env);
     env.ledger().set_timestamp(1_234);
@@ -403,9 +404,14 @@ fn attest_emits_event_on_success() {
     let mut data = Map::<Symbol, soroban_sdk::Val>::new(&env);
     data.set(Symbol::new(&env, "attested_at"), 1_234u64.into_val(&env));
     data.set(
+        Symbol::new(&env, "evidence_hash"),
+        hash(&env).into_val(&env),
+    );
+    data.set(
         Symbol::new(&env, "flags"),
         MECH_AUTH_REVOCABLE.into_val(&env),
     );
+    data.set(Symbol::new(&env, "preimage_version"), 4u32.into_val(&env));
     data.set(
         Symbol::new(&env, "severity"),
         SEVERITY_MEDIUM.into_val(&env),
@@ -1438,8 +1444,9 @@ fn batch_reads_match_single_write_path() {
 }
 
 /// A batch is written in the order it was given, and each element publishes its
-/// own `Attested` event with the same schema a single `attest` uses. An indexer
-/// subscribed by asset therefore needs no batch-specific decoding path.
+/// own complete `Attested` event with the same schema a single `attest` uses.
+/// An indexer subscribed by asset therefore needs no batch-specific decoding
+/// path.
 #[test]
 fn batch_emits_one_event_per_element() {
     let (env, client, _) = setup();
@@ -1455,15 +1462,25 @@ fn batch_emits_one_event_per_element() {
 
     let mut clear_data = Map::<Symbol, soroban_sdk::Val>::new(&env);
     clear_data.set(Symbol::new(&env, "attested_at"), 2_000u64.into_val(&env));
+    clear_data.set(
+        Symbol::new(&env, "evidence_hash"),
+        hash(&env).into_val(&env),
+    );
     clear_data.set(Symbol::new(&env, "flags"), 0u32.into_val(&env));
+    clear_data.set(Symbol::new(&env, "preimage_version"), 4u32.into_val(&env));
     clear_data.set(Symbol::new(&env, "severity"), SEVERITY_CLEAR.into_val(&env));
 
     let mut low_data = Map::<Symbol, soroban_sdk::Val>::new(&env);
     low_data.set(Symbol::new(&env, "attested_at"), 2_000u64.into_val(&env));
     low_data.set(
+        Symbol::new(&env, "evidence_hash"),
+        hash(&env).into_val(&env),
+    );
+    low_data.set(
         Symbol::new(&env, "flags"),
         MECH_AUTH_REQUIRED.into_val(&env),
     );
+    low_data.set(Symbol::new(&env, "preimage_version"), 4u32.into_val(&env));
     low_data.set(Symbol::new(&env, "severity"), SEVERITY_LOW.into_val(&env));
 
     assert_eq!(
@@ -1726,20 +1743,13 @@ fn attest_many_rejects_unauthorized_caller() {
 ///
 /// `Env::default` enforces `InvocationResourceLimits::mainnet()`, which is
 /// identical to the live testnet settings read on 2026-09-27 with
-/// `stellar network settings --network testnet` (protocol 28). So if the cap
-/// were too high, `attest_many` would panic here exactly as the transaction
-/// would fail on the network — which is what happened during development at
-/// 100 elements (`contract events size bytes: 20000 > 16384`), and is why the
-/// cap is not 100.
+/// `stellar network settings --network testnet` (protocol 28). The event now
+/// includes evidence_hash and preimage_version, so this test measures its
+/// actual encoded size and asserts the cap leaves at least one third of the
+/// event budget unused.
 ///
-/// | Limit | Live network | A full 50-element batch |
-/// | --- | --- | --- |
-/// | contract event bytes | 16 384 | 10 000 (61%) — binding |
-/// | ledger entries written | 200 | 51 |
-/// | transaction footprint entries | 400 | 105 |
-/// | bytes written | 132 096 | 14 072 |
-/// | instructions | 400 000 000 | 3 383 545 |
-/// | memory | 41 943 040 | 544 276 |
+/// Resource ceilings are read from the test host; the event-byte measurement
+/// is asserted below against the live 16 384-byte event limit.
 #[test]
 fn batch_size_bound_is_measured_and_holds_headroom() {
     let (env, client, _) = setup();
@@ -1790,19 +1800,10 @@ fn batch_size_bound_is_measured_and_holds_headroom() {
         r.mem_bytes
     );
 
-    // The event budget is the binding constraint, and what makes it bind is the
-    // per-element `Attested` event. Pin the unit cost so the derivation above
-    // fails loudly if the event schema grows, rather than the cap becoming
-    // quietly wrong.
-    assert_eq!(
-        r.contract_events_size_bytes,
-        200 * MAX_BATCH_SIZE,
-        "per-event cost changed; MAX_BATCH_SIZE and the doc table must be re-derived"
-    ); // The cap must use no more than two thirds of the tightest budget, and stay
-       // under the ceiling that budget imposes. At 50 elements the batch costs
-       // 10 000 of 16 384 event bytes, against a hard ceiling of 81 elements.
+    // The cap must use no more than two thirds of the event budget, leaving
+    // headroom if the event schema grows later.
     let event_budget: u32 = 16_384;
-    let per_event = r.contract_events_size_bytes / MAX_BATCH_SIZE;
+    let per_event = r.contract_events_size_bytes.div_ceil(MAX_BATCH_SIZE);
     let hard_ceiling = event_budget / per_event;
     assert!(
         MAX_BATCH_SIZE * per_event * 3 <= event_budget * 2,
@@ -2408,9 +2409,10 @@ fn version_returns_interface_version() {
 /// Version 3 is the #284 change: the stored `Safety` gained `preimage_version`,
 /// so a reader can tell which evidence encoding its `evidence_hash` used.
 /// Version 4 is the #567 change: `Quorum::InvalidArguments` joined the enum.
+/// Version 5 is the #565 change: `Attested` carries the complete stored value.
 #[test]
 fn interface_version_is_abi() {
-    assert_eq!(INTERFACE_VERSION, 4);
+    assert_eq!(INTERFACE_VERSION, 5);
 }
 
 /// A bump that is not recorded leaves a consumer holding `version() == N` with
@@ -2623,7 +2625,7 @@ fn cost_scenarios() -> std::vec::Vec<(&'static str, Cost)> {
         ));
     }
     client.attest_many(&batch);
-    costs.push(("attest_many_50", invocation_cost(&env)));
+    costs.push(("attest_many_30", invocation_cost(&env)));
 
     let (env, client, _) = cost_setup();
     env.ledger().set_timestamp(1_234);

@@ -20,11 +20,6 @@ const (
 	defaultExposureLimit = 10
 	maxExposureLimit     = 50
 
-	// exposureTimeout bounds one page. It is deliberately larger than the
-	// single-scan timeout: a page is many scans sharing one cache, but it
-	// must still end, or one slow upstream would hold the request open.
-	exposureTimeout = 90 * time.Second
-
 	// defaultExposureBurst and defaultExposureRate are the rate limit applied
 	// to exposure when the server is built without its own limiter. The burst
 	// lets a wallet render its first page immediately; the refill lets it
@@ -135,7 +130,11 @@ func (s *Server) handleExposure(w http.ResponseWriter, r *http.Request) {
 		cursor = n
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), exposureTimeout)
+	timeout := s.ExposureTimeout
+	if timeout <= 0 {
+		timeout = DefaultExposureTimeout
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 
 	trustlines, err := s.Scanner.Horizon.Trustlines(ctx, baseAccount)

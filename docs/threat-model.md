@@ -308,7 +308,7 @@ The `revoke` event is what lets an indexer notice.
 transaction resource limits and measured rather than guessed; a longer vector
 returns `BatchTooLarge` and writes nothing rather than truncating. The binding
 limit is the transaction's contract-event budget, not its fee
-([contract-interface.md](contract-interface.md#the-cap-and-why-it-is-50)).
+([contract-interface.md](contract-interface.md#the-cap-and-why-it-is-30)).
 A caller cannot make one call cost unbounded work, and cannot half-apply a batch
 to leave an inconsistent view.
 

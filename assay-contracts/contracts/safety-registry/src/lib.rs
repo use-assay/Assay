@@ -102,19 +102,16 @@ pub const POLICY_MASK_FREEZE_INCLUSIVE: u32 = MECH_AUTH_REVOCABLE | MECH_CLAWBAC
 /// [`SafetyRegistry::quorum`] call is no longer reported as
 /// [`Quorum::Unavailable`] (an outage). A `match` on [`Quorum`] that was
 /// exhaustive under version 3 no longer compiles, and a consumer decoding the
-/// enum must learn the new case.
-pub const INTERFACE_VERSION: u32 = 4;
+/// enum must learn the new case. Version 5 adds `evidence_hash` and
+/// `preimage_version` to the published [`Attested`] event so it reconstructs
+/// the complete stored attestation.
+pub const INTERFACE_VERSION: u32 = 5;
 
 /// Event emitted on every successful `attest` write. Rejected attestations
-/// (`InvalidSeverity`, `InconsistentAttestation`, unauthorized caller) publish
-/// nothing, so observers never see writes that did not happen.
+/// publish nothing, so observers never see writes that did not happen.
 ///
-/// Topics: `("attest", asset)`. The asset address is a topic (not a data
-/// field) so indexers can subscribe by asset without decoding every event.
-/// Two topics stay well within the SDK's four-topic limit.
-///
-/// Data is a `Map` keyed by field name for readability from RPC output. The
-/// exact shape is part of the observable ABI: see `docs/contract-interface.md`.
+/// Topics: `("attest", asset)`. The data map carries every field of the stored
+/// [`Safety`] value except `asset`, which is the second topic.
 #[contractevent(topics = ["attest"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Attested {
@@ -125,10 +122,12 @@ pub struct Attested {
     pub severity: u32,
     /// Mechanic bitset written for the asset.
     pub flags: u32,
-    /// Ledger timestamp of the write, obtained from `env.ledger().timestamp()`
-    /// (seconds since Unix epoch). Authoritative for all on-chain freshness
-    /// decisions (`is_safe`, `is_safe_masked`). See `docs/timestamps.md`.
+    /// SHA-256 over the canonical evidence bundle.
+    pub evidence_hash: BytesN<32>,
+    /// Ledger timestamp of the write.
     pub attested_at: u64,
+    /// Preimage encoding version used to produce `evidence_hash`.
+    pub preimage_version: u32,
 }
 
 /// Event emitted on every successful `revoke`. A revoke that fails
@@ -250,37 +249,6 @@ pub struct Safety {
     /// The version of the preimage encoding used to produce `evidence_hash`,
     /// so a verifier does not have to guess which encoding produced the hash.
     pub preimage_version: u32,
-}
-
-/// Event emitted when an attestation is written or overwritten.
-///
-/// This event provides an on-chain audit trail so that any overwrite of an
-/// attestation can be detected and the previous value reconstructed from
-/// chain history.
-///
-/// Topics:
-/// - `"attest"`: static topic identifying the event type
-/// - `asset`: the Stellar Asset Contract address (as Address)
-///
-/// Data:
-/// - `previous`: the previous attestation, or `None` if this is the first
-///   attestation for this asset
-/// - `current`: the new attestation that was written
-///
-/// Retention: Soroban contract events are retained in ledger history for
-/// approximately 1 year (the same retention as ledger entries). Beyond that
-/// window, history is not reconstructible from chain alone; an off-chain
-/// indexer or archive is required for longer audit trails.
-#[contractevent(topics = ["attest"], data_format = "map")]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct AttestationEvent {
-    /// The asset this attestation is for.
-    pub asset: Address,
-    /// The previous attestation, if any. `None` means this is the first
-    /// attestation for this asset.
-    pub previous: Option<Safety>,
-    /// The new attestation that was written.
-    pub current: Safety,
 }
 
 /// Event emitted when the current admin proposes a two-step transfer of the
@@ -494,14 +462,15 @@ fn write_attestation(
     env.storage().persistent().set(&key, &safety);
     extend_attestation(env, &key);
 
-    // Publish after the write. Emitting before would let a storage failure
-    // produce a visible "attest" for an attestation that does not exist;
-    // emitting after means indexers observe writes that actually happened.
+    // Publish after the write so an indexer observes only committed values.
+    // The event includes every stored Safety field for reconstruction.
     Attested {
         asset,
         severity,
         flags,
+        evidence_hash: safety.evidence_hash,
         attested_at,
+        preimage_version,
     }
     .publish(env);
 }
@@ -513,41 +482,23 @@ fn write_attestation(
 /// than picked for tidiness: it is the tightest of them divided down to leave
 /// headroom. The limits were read live on 2026-09-27 with
 /// `stellar network settings --network testnet` (protocol 28), and match
-/// `InvocationResourceLimits::mainnet()` in soroban-sdk 27.0.5. The cost column
-/// is a real 50-element batch measured through those same limits by
-/// `batch_size_bound_is_measured_and_holds_headroom`:
+/// `InvocationResourceLimits::mainnet()` in soroban-sdk 27.0.5. The live
+/// limits are 16 384 event bytes, 200 ledger writes, 400 footprint entries,
+/// 132 096 bytes written, 400 000 000 instructions, and 41 943 040 bytes of
+/// memory. `MAX_BATCH_SIZE` is conservative because each event now carries the
+/// complete stored `Safety` data (including a 32-byte evidence hash and the
+/// preimage version), not only the severity and mechanic bits.
 ///
-/// | Limit | Live network | A full 50-element batch |
-/// | --- | --- | --- |
-/// | **contract event bytes** | **16 384** | **10 000 (61%) — the binding limit** |
-/// | ledger entries written | 200 | 51 (26%) |
-/// | transaction footprint entries | 400 | 105 (26%) |
-/// | bytes written | 132 096 | 14 072 (11%) |
-/// | instructions | 400 000 000 | 3 383 545 (0.8%) |
-/// | memory | 41 943 040 | 544 276 (1.3%) |
-///
-/// # What actually binds
-///
-/// Each element publishes its own `Attested` event, and one such event costs
-/// exactly 200 bytes. The event budget therefore admits at most 81 elements
-/// no matter how frugal the writes are — 81 is the hard ceiling, and 100 was
-/// measured failing at `20000 > 16384`. 50 sits at 61% of that budget, leaves
-/// room for the event schema to grow before the cap is wrong, and costs a
-/// quarter of every other limit, including the write budget one would have
-/// guessed was binding.
-///
-/// Per-asset events are kept rather than collapsed into one batch-sized event
-/// precisely because of that cost: a single event would raise the ceiling, but
-/// it would take away the property that an indexer can subscribe by asset
-/// (`("attest", asset)` topics) and see every write to that asset without
-/// decoding batch bodies. A higher cap is worth less than that.
+/// Per-asset events remain separate so an indexer can subscribe by asset
+/// (`("attest", asset)`) without decoding a batch-wide event. The measured
+/// headroom test is authoritative if this schema or write path changes.
 ///
 /// `batch_size_bound_is_measured_and_holds_headroom` runs a full batch with the
 /// SDK's own mainnet resource enforcement switched on — which `Env::default`
-/// enables — and asserts both that it fits every limit and that the per-event
-/// cost has not moved, so the cap cannot quietly drift out from under the
-/// contract when the code below it changes.
-pub const MAX_BATCH_SIZE: u32 = 50;
+/// enables — and asserts that the expanded event schema fits with at least a
+/// third of the event budget unused. The cap is intentionally lower than the
+/// reduced batch bound required by the expanded event payload.
+pub const MAX_BATCH_SIZE: u32 = 30;
 
 #[contract]
 pub struct SafetyRegistry;
@@ -691,9 +642,8 @@ impl SafetyRegistry {
     /// [`Error::InvalidAsset`]; see [`validate_asset_address`] for what that
     /// check can and cannot establish (#349).
     ///
-    /// Emits an [`AttestationEvent`] with the previous value (if any) and the
-    /// new value, providing an on-chain audit trail. See the event
-    /// documentation for retention semantics.
+    /// Emits an [`Attested`] event with every field of the newly stored
+    /// `Safety` value, allowing an indexer to reconstruct the attestation.
     pub fn attest(
         env: Env,
         asset: Address,

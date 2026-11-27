@@ -326,7 +326,7 @@ func TestABIDriftCapabilityMask(t *testing.T) {
 }
 
 // TestABIDriftInterfaceVersion asserts that the interface version in the registry
-// contract source text matches the documented version (4).
+// contract source text matches the documented version (5).
 func TestABIDriftInterfaceVersion(t *testing.T) {
 	src, err := os.ReadFile(contractSourcePath(t))
 	if err != nil {
@@ -338,8 +338,8 @@ func TestABIDriftInterfaceVersion(t *testing.T) {
 	if !ok {
 		t.Fatal("rust INTERFACE_VERSION missing")
 	}
-	if got != 4 {
-		t.Errorf("INTERFACE_VERSION drift: got %d, want 4", got)
+	if got != 5 {
+		t.Errorf("INTERFACE_VERSION drift: got %d, want 5", got)
 	}
 }
 
@@ -528,22 +528,24 @@ func TestABIDriftAttestationStructShape(t *testing.T) {
 	})
 }
 
-// TestABIDriftAttestationEventShape pins the fields of the AttestationEvent
-// struct. Even though the current contract does not publish it yet (tracked
-// separately), it is declared as part of the documented interface; changing
-// its field names on one side without the other would make an indexer decode
-// a different event than the contract emits.
-func TestABIDriftAttestationEventShape(t *testing.T) {
+// TestABIDriftAttestedEventShape pins the payload of the attest event. It
+// carries every stored Safety field, so changing a name or type on one side
+// without the other would make an indexer decode a different event than the
+// contract emits.
+func TestABIDriftAttestedEventShape(t *testing.T) {
 	src, err := os.ReadFile(contractSourcePath(t))
 	if err != nil {
 		t.Fatalf("read contract source: %v", err)
 	}
 
-	got := parseRustFields(t, string(src), "AttestationEvent")
-	assertStructShape(t, "AttestationEvent", got, []rustField{
-		{name: "asset", typ: "Address"},
-		{name: "previous", typ: "Option<Safety>"},
-		{name: "current", typ: "Safety"},
+	got := parseRustFields(t, string(src), "Attested")
+	assertStructShape(t, "Attested", got, []rustField{
+		{name: "asset", typ: "Address", topic: true},
+		{name: "severity", typ: "u32"},
+		{name: "flags", typ: "u32"},
+		{name: "evidence_hash", typ: "BytesN<32>"},
+		{name: "attested_at", typ: "u64"},
+		{name: "preimage_version", typ: "u32"},
 	})
 }
 

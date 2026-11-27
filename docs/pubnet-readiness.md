@@ -22,7 +22,7 @@ is tracked separately. Status below distinguishes "in the repository" from
 | 4 | **Re-attestation automation** — attestations stay inside a known freshness window without a human | Done: runbook and scheduler semantics are documented and the freshness window is measured | [#145](https://github.com/use-assay/Assay/issues/145) |
 | 5 | **Key custody** — who holds the attester key, where it lives, and what happens on loss or compromise | Done: custody, loss and compromise response, and rotation limits are documented | [#150](https://github.com/use-assay/Assay/issues/150) |
 | 6 | **Reproducible scanner** — a third party can rebuild the binary and reproduce the evidence hashes bit-for-bit | Done: reproducible build and rebuild procedure are documented | [#281](https://github.com/use-assay/Assay/issues/281) |
-| 7 | **Audit** — every write and withdrawal has an on-chain trail an indexer can reconstruct | Partial: `attest`/`revoke` events exist; the richer `AttestationEvent` is declared but not published | [#92](https://github.com/use-assay/Assay/issues/92) |
+| 7 | **Audit** — every write and withdrawal has an on-chain trail an indexer can reconstruct | Source only: `attest` events carry the full stored record and `revoke` events exist; the live registry predates them | [#92](https://github.com/use-assay/Assay/issues/92) |
 
 ## Reading the statuses
 

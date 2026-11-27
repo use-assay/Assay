@@ -26,6 +26,14 @@ import (
 //go:embed ui/index.html
 var uiFS embed.FS
 
+// Request deadlines for the scan endpoints. The production HTTP server's
+// WriteTimeout must exceed DefaultExposureTimeout with room to encode the
+// partial page and write it back to the client.
+const (
+	DefaultScanTimeout     = 30 * time.Second
+	DefaultExposureTimeout = 90 * time.Second
+)
+
 // Scanner describes what the API server needs from a scanner.
 type Scanner interface {
 	ScanWithHolder(ctx context.Context, a mechanics.Asset, holder string) (*mechanics.Report, error)
@@ -54,6 +62,10 @@ type Server struct {
 	// default", never "allow unlimited"; an exposure endpoint without a
 	// bound would be N scans per request with nothing between them.
 	ExposureLimiter *RateLimiter
+	// ExposureTimeout bounds one exposure page. Zero uses
+	// DefaultExposureTimeout; the field also lets tests exercise deadline
+	// behavior with short, deterministic durations.
+	ExposureTimeout time.Duration
 	// ScanLimiter rate-limits GET /api/v1/scan per client address.
 	// When nil, no rate limit is applied — nil means "off", not "default".
 	// The limit is intentionally off by default for local use and development;
@@ -333,7 +345,7 @@ func (s *Server) handleScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), DefaultScanTimeout)
 	defer cancel()
 
 	// A CODE-ISSUER input is parsed locally; a C… contract input is resolved

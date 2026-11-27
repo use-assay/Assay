@@ -55,11 +55,11 @@ pub struct Attestation {
 
 /// The largest batch attest_many and get_safety_many accept. The cap is
 /// derived from the live transaction resource limits; see "attest_many" below.
-pub const MAX_BATCH_SIZE: u32 = 50;
+pub const MAX_BATCH_SIZE: u32 = 30;
 
 /// The contract's interface version, bumped on every ABI change. See
 /// "Interface versioning" below for the bump rule.
-pub const INTERFACE_VERSION: u32 = 4;
+pub const INTERFACE_VERSION: u32 = 5;
 
 pub fn get_safety(env: Env, asset: Address) -> Option<Safety>;
 pub fn version(env: Env) -> u32;
@@ -87,7 +87,7 @@ struct is a supported argument type in soroban-sdk 27.
 ## Interface versioning
 
 `version()` is a read-only entrypoint that returns the contract's interface
-version (`INTERFACE_VERSION`), currently `4`. A consumer or a drift script can
+version (`INTERFACE_VERSION`), currently `5`. A consumer or a drift script can
 call it to ask "what is this contract?" instead of inferring the interface from
 a wasm hash.
 
@@ -116,6 +116,7 @@ names a version with no row.
 | 2 | Adds `cancel_admin_transfer` and the `cancel_admin` event, and `Error::InvalidAsset` for an address that cannot name a SAC. |
 | 3 | Adds `preimage_version: u32` to the stored `Safety`, written by `attest` and `attest_many`, so a verifier can tell which encoding produced `evidence_hash`. |
 | 4 | Adds `Quorum::InvalidArguments`, so a malformed `quorum` call is no longer reported as `Quorum::Unavailable`. |
+| 5 | Expands the `Attested` event to carry every stored `Safety` field other than the asset topic. |
 
 The constant is an ABI value and is parsed by the Go ABI drift test, so it
 cannot drift from the deployed interface without a red build.
@@ -138,8 +139,8 @@ cannot drift from the deployed interface without a red build.
 useful set of assets instead of one asset per ledger and per fee.
 
 Every element is written exactly as `attest` writes it — the same
-`DataKey::Safety(asset)` key, the same stored `Safety`, the same `Attested`
-event — and both entrypoints call the same validation function. A batch is
+`DataKey::Safety(asset)` key, the same stored `Safety`, the same complete
+`Attested` event — and both entrypoints call the same validation function. A batch is
 **not** a lower bar:
 
 - `InvalidAsset`, `InvalidSeverity` and `InconsistentAttestation` are the same
@@ -171,28 +172,17 @@ from whichever write happened to be in flight — and (b) a failure that is chea
 because a batch whose last element is bad does not first pay to write every
 element before it.
 
-#### The cap, and why it is 50
+#### The cap, and why it is 30
 
-The bound is a network limit, not a round number. Read live on 2026-09-27 with
-`stellar network settings --network testnet` (protocol 28), and measured against
-the same enforcement the SDK applies in the tests:
-
-| Limit | Live network | A full 50-element batch | Used |
-| --- | --- | --- | --- |
-| **contract event bytes** | **16 384** | **10 000** | **61% — the binding limit** |
-| ledger entries written | 200 | 51 | 26% |
-| transaction footprint entries | 400 | 105 | 26% |
-| bytes written | 132 096 | 14 072 | 11% |
-| instructions | 400 000 000 | 3 383 545 | 0.8% |
-| memory | 41 943 040 | 544 276 | 1.3% |
-
-Each element publishes its own `Attested` event and one such event is exactly
-200 bytes, so the event budget admits **at most 81 elements** however frugal the
-writes are. That is the hard ceiling: a 100-element batch was measured failing
-with `contract events size bytes: 20000 > 16384`. 50 sits at 61% of that
-budget — room for the event schema to grow before the cap becomes wrong — and
-costs about a quarter of every other limit, including the write budget one would
-naturally have guessed was binding.
+The live network limits, read on 2026-09-27 with
+`stellar network settings --network testnet` (protocol 28), are 16 384 event
+bytes, 200 ledger writes, 400 footprint entries, 132 096 write bytes,
+400 000 000 instructions, and 41 943 040 memory bytes. Each event now includes
+`evidence_hash` and `preimage_version` as well as severity, flags and
+`attested_at`, so the batch cap is re-derived with the expanded event payload. The cap is
+30; `batch_size_bound_is_measured_and_holds_headroom` measures the expanded
+event encoding under the SDK's network limits and asserts that it uses no more
+than two thirds of the event-byte budget.
 
 Per-asset events are kept rather than collapsed into one batch-sized event for
 precisely this reason. A single event would raise the ceiling, but it would
@@ -201,10 +191,9 @@ every write to that asset without decoding batch bodies. A higher cap is worth
 less than that.
 
 `batch_size_bound_is_measured_and_holds_headroom` in the contract tests runs a
-full batch with the SDK's mainnet resource enforcement switched on (which
-`Env::default` enables), asserts it fits every limit, and pins the 200-byte
-per-event cost so the cap is re-derived rather than silently wrong if the event
-or the write path changes.
+full 30-item batch with the SDK's mainnet resource enforcement switched on
+(`Env::default` enables it), asserts it fits every limit, and enforces the
+event-byte headroom if the event or write path changes.
 
 #### Per-entrypoint cost baseline
 
@@ -217,14 +206,16 @@ over the committed value.
 
 | Entrypoint | CPU instructions | Memory (bytes) | Read bytes | Write bytes |
 | --- | --- | --- | --- | --- |
-| `attest` | 58 301 | 8 974 | 0 | 352 |
-| `attest_many(50)` | 3 383 545 | 544 276 | 0 | 14 072 |
+| `attest` | 67 353 | 10 022 | 0 | 384 |
+| `attest_many(30)` | 1 908 345 | 283 536 | 0 | 9 432 |
 | `get_safety` | 25 417 | 3 524 | 0 | 0 |
 | `is_safe` | 21 409 | 3 148 | 0 | 0 |
 | `is_safe_masked` | 21 855 | 3 148 | 0 | 0 |
 
-The numbers come from the SDK's `env.cost_estimate().resources()` after the
-call in isolation, in the same units the network limits use. Read bytes are
+The recorded numbers come from the SDK's `env.cost_estimate().resources()` after
+the call in isolation, in the same units the network limits use. The batch row
+measures the full 30-item bound now published in `MAX_BATCH_SIZE`; the same
+headroom test re-measures the complete event encoding. Read bytes are
 `disk_read_bytes`; live Soroban entries are served from memory in the test
 host, so that number is zero there even though an entry read still costs
 instructions and a memory-entry read. `is_safe` and `is_safe_masked` write
@@ -431,7 +422,7 @@ happen.
 
 | Topic 0 | Topic 1 | Data |
 | --- | --- | --- |
-| `symbol_short!("attest")` | asset `Address` | `Map<Symbol, Val>` with keys `severity: u32`, `flags: u32`, `attested_at: u64` |
+| `symbol_short!("attest")` | asset `Address` | `Map<Symbol, Val>` with keys `severity: u32`, `flags: u32`, `evidence_hash: BytesN<32>`, `attested_at: u64`, `preimage_version: u32` |
 | `symbol_short!("revoke")` | asset `Address` | `Map<Symbol, Val>` with key `revoked_at: u64` |
 | `Symbol::new(env, "cancel_admin")` | pending admin `Address` | `Map<Symbol, Val>` with key `cancelled_at: u64` |
 
@@ -449,8 +440,11 @@ A successful `cancel_admin_transfer` publishes the third row. A rejected cancel
 topic so an indexer can filter for the withdrawn proposal without decoding the
 data map.
 
-The events are defined with the `#[contractevent]` macro on the `Attested`,
-`Revoked`, and `AdminTransferCancelled` structs
+Exactly one attestation event type exists: `Attested`. Its payload contains
+every non-topic field of the stored `Safety`, so an indexer can reconstruct the
+latest value from a successful event without polling storage. The event is
+defined with `#[contractevent]`, alongside `Revoked` and
+`AdminTransferCancelled`,
 in the contract (see `assay-contracts/contracts/safety-registry/src/lib.rs`),
 so the schema is discoverable from the contract spec rather than only from
 this document.
@@ -462,11 +456,10 @@ topic-0 shape for a filterable label.
 
 ### Event budget impact
 
-Both admin-transfer events carry two addresses and a timestamp. They are
-published once per single (non-batched) admin call, so they do not affect the
-`attest_many` event budget; that cap is measured separately by
-`batch_size_bound_is_measured_and_holds_headroom` and leaves headroom for the
-event schema to grow.
+Admin-transfer events are published once per single (non-batched) admin call,
+so they do not affect the `attest_many` event budget. The larger `Attested`
+payload is measured by `batch_size_bound_is_measured_and_holds_headroom`, which
+enforces at least one third of the event-byte budget as headroom.
 
 Severity values and mechanic bit positions are **ABI** and mirror
 `internal/mechanics` exactly. Do not renumber them.

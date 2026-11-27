@@ -6,6 +6,7 @@ import (
 	"encoding/base32"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -44,6 +45,7 @@ type registryEvent struct {
 	Kind      string            `json:"kind"`
 	TxHash    string            `json:"tx_hash"`
 	Fields    map[string]uint64 `json:"fields"`
+	HexFields map[string]string `json:"hex_fields,omitempty"`
 	EventID   string            `json:"id"`
 	AssetAddr string            `json:"asset"`
 }
@@ -197,23 +199,24 @@ func decodeRegistryEvent(e rpcEvent, sac string) (registryEvent, error) {
 	if err != nil {
 		return registryEvent{}, fmt.Errorf("value: %w", err)
 	}
-	fields, err := xdrSymbolMap(val)
+	fields, hexFields, err := xdrSymbolMap(val)
 	if err != nil {
 		return registryEvent{}, fmt.Errorf("value: %w", err)
 	}
 	return registryEvent{
 		Ledger: e.Ledger, ClosedAt: e.ClosedAt, Kind: kind, TxHash: e.TxHash,
-		Fields: fields, EventID: e.ID, AssetAddr: sac,
+		Fields: fields, HexFields: hexFields, EventID: e.ID, AssetAddr: sac,
 	}, nil
 }
 
 // --- the little XDR this command needs: a Symbol, a contract Address and a
-// Map<Symbol, u32|u64>. Nothing else is accepted, so a changed event shape
+// Map<Symbol, u32|u64|Bytes>. Nothing else is accepted, so a changed event shape
 // fails loudly instead of printing a wrong history.
 
 const (
 	scvU32     = 3
 	scvU64     = 5
+	scvBytes   = 13
 	scvMap     = 17
 	scvAddress = 18
 	scvSymbol  = 15
@@ -230,49 +233,63 @@ func xdrSymbol(b []byte) (string, error) {
 	return string(b[8 : 8+n]), nil
 }
 
-func xdrSymbolMap(b []byte) (map[string]uint64, error) {
+// xdrSymbolMap decodes an event data map into its integer fields and its
+// byte-string fields, the latter rendered as lowercase hex.
+func xdrSymbolMap(b []byte) (map[string]uint64, map[string]string, error) {
 	if len(b) < 12 || binary.BigEndian.Uint32(b) != scvMap {
-		return nil, errors.New("not a map")
+		return nil, nil, errors.New("not a map")
 	}
 	if binary.BigEndian.Uint32(b[4:]) != 1 {
-		return nil, errors.New("map is absent")
+		return nil, nil, errors.New("map is absent")
 	}
 	count := int(binary.BigEndian.Uint32(b[8:]))
 	off := 12
 	out := make(map[string]uint64, count)
+	hexOut := make(map[string]string)
 	for i := 0; i < count; i++ {
 		if off+8 > len(b) || binary.BigEndian.Uint32(b[off:]) != scvSymbol {
-			return nil, errors.New("map key is not a symbol")
+			return nil, nil, errors.New("map key is not a symbol")
 		}
 		n := int(binary.BigEndian.Uint32(b[off+4:]))
 		padded := (n + 3) &^ 3
 		if n < 0 || off+8+padded > len(b) {
-			return nil, errors.New("truncated map key")
+			return nil, nil, errors.New("truncated map key")
 		}
 		key := string(b[off+8 : off+8+n])
 		off += 8 + padded
 
 		if off+4 > len(b) {
-			return nil, errors.New("truncated map value")
+			return nil, nil, errors.New("truncated map value")
 		}
 		switch binary.BigEndian.Uint32(b[off:]) {
 		case scvU32:
 			if off+8 > len(b) {
-				return nil, errors.New("truncated u32")
+				return nil, nil, errors.New("truncated u32")
 			}
 			out[key] = uint64(binary.BigEndian.Uint32(b[off+4:]))
 			off += 8
 		case scvU64:
 			if off+12 > len(b) {
-				return nil, errors.New("truncated u64")
+				return nil, nil, errors.New("truncated u64")
 			}
 			out[key] = binary.BigEndian.Uint64(b[off+4:])
 			off += 12
+		case scvBytes:
+			if off+8 > len(b) {
+				return nil, nil, errors.New("truncated bytes")
+			}
+			size := int(binary.BigEndian.Uint32(b[off+4:]))
+			pad := (size + 3) &^ 3
+			if size < 0 || pad < size || off+8+pad > len(b) || off+8+pad < off {
+				return nil, nil, errors.New("truncated bytes")
+			}
+			hexOut[key] = hex.EncodeToString(b[off+8 : off+8+size])
+			off += 8 + pad
 		default:
-			return nil, fmt.Errorf("field %q has an unsupported type", key)
+			return nil, nil, fmt.Errorf("field %q has an unsupported type", key)
 		}
 	}
-	return out, nil
+	return out, hexOut, nil
 }
 
 // scAddressContract returns the base64 XDR of an ScVal address holding the
@@ -356,9 +373,20 @@ func printRegistryHistory(w io.Writer, h *registryHistory) {
 				e.ClosedAt, e.Ledger, e.Fields["revoked_at"], e.TxHash)
 			continue
 		}
-		_, _ = fmt.Fprintf(w, "%s  ledger %d  attest  severity=%d flags=%d attested_at=%d  tx %s\n",
-			e.ClosedAt, e.Ledger, e.Fields["severity"], e.Fields["flags"], e.Fields["attested_at"], e.TxHash)
+		_, _ = fmt.Fprintf(w, "%s  ledger %d  attest  severity=%d flags=%d attested_at=%d%s  tx %s\n",
+			e.ClosedAt, e.Ledger, e.Fields["severity"], e.Fields["flags"], e.Fields["attested_at"], evidenceSuffix(e), e.TxHash)
 	}
+}
+
+// evidenceSuffix renders the evidence commitment an attest event carries.
+// Events from registries built before interface version 5 have none, and
+// print nothing rather than a zero that would read as a real value.
+func evidenceSuffix(e registryEvent) string {
+	hash := e.HexFields["evidence_hash"]
+	if hash == "" {
+		return ""
+	}
+	return fmt.Sprintf(" preimage_version=%d evidence_hash=%s", e.Fields["preimage_version"], hash)
 }
 
 func envOr(key, def string) string {

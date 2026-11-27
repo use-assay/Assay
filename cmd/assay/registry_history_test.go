@@ -166,3 +166,23 @@ func TestRegistryHistoryRejectsBadAddress(t *testing.T) {
 		t.Fatal("expected an error for a malformed contract address")
 	}
 }
+
+// TestXDRSymbolMapDecodesBytes pins that the evidence_hash an attest event
+// carries decodes to hex, and that a truncated one is refused.
+func TestXDRSymbolMapDecodesBytes(t *testing.T) {
+	raw := []byte{
+		0, 0, 0, 17, 0, 0, 0, 1, 0, 0, 0, 1, // map, present, one entry
+		0, 0, 0, 15, 0, 0, 0, 1, 'h', 0, 0, 0, // symbol "h"
+		0, 0, 0, 13, 0, 0, 0, 2, 0xab, 0xcd, 0, 0, // two bytes, padded
+	}
+	_, hexFields, err := xdrSymbolMap(raw)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if hexFields["h"] != "abcd" {
+		t.Errorf("h = %q, want abcd", hexFields["h"])
+	}
+	if _, _, err := xdrSymbolMap(raw[:len(raw)-3]); err == nil {
+		t.Error("a truncated byte string must be refused")
+	}
+}
