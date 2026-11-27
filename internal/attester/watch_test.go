@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -215,5 +216,160 @@ func TestWatcherKeepsCursorWhenPollFails(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].OperationID != "250000000000000005" {
 		t.Fatalf("after recovery got %+v, want the one flag change", got)
+	}
+}
+
+// memHorizon is an in-process HorizonReader: one issuer's operation log and
+// current flags, which a test appends to while the watcher is "down".
+type memHorizon struct {
+	flags horizon.Flags
+	ops   []horizon.Operation
+}
+
+func (m *memHorizon) Account(_ context.Context, id string) (*horizon.Account, error) {
+	return &horizon.Account{AccountID: id, Flags: m.flags}, nil
+}
+
+func (m *memHorizon) Operations(_ context.Context, _ string, cursor string, order horizon.Order, limit int) ([]horizon.Operation, error) {
+	if order == horizon.Descending {
+		if len(m.ops) == 0 {
+			return nil, nil
+		}
+		return []horizon.Operation{m.ops[len(m.ops)-1]}, nil
+	}
+	var out []horizon.Operation
+	for _, op := range m.ops {
+		if cursor == "" || op.PagingToken > cursor {
+			out = append(out, op)
+		}
+		if len(out) == limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+// setOptions appends a successful set_options by the issuer and applies it to
+// the current flags, as the ledger would.
+func (m *memHorizon) setOptions(token string, set, clear []int) {
+	op := horizon.Operation{
+		ID: token, PagingToken: token, Type: "set_options", TransactionSuccessful: true,
+		SourceAccount: watchedIssuer, SetFlags: set, ClearFlags: clear,
+	}
+	m.flags, _ = ApplyOperation(m.flags, watchedIssuer, op)
+	m.ops = append(m.ops, op)
+}
+
+func TestWatcherStateReplaysOperationsMissedDuringDowntime(t *testing.T) {
+	ctx := context.Background()
+	statePath := filepath.Join(t.TempDir(), "watch-state.json")
+	h := &memHorizon{flags: horizon.Flags{AuthRequired: true}}
+	h.ops = append(h.ops, horizon.Operation{ID: "100", PagingToken: "100", Type: "payment", TransactionSuccessful: true})
+
+	first := NewWatcher(watchConfig(t), h)
+	first.SetStatePath(statePath)
+	if err := first.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(statePath); err != nil {
+		t.Fatalf("Init did not write the baseline: %v", err)
+	}
+
+	// The watcher is down while the issuer sets and then clears clawback:
+	// the current flags end where they started, so only the replay sees it.
+	h.setOptions("101", []int{flagAuthClawbackEnabled}, nil)
+	h.setOptions("102", nil, []int{flagAuthClawbackEnabled})
+
+	restarted := NewWatcher(watchConfig(t), h)
+	restarted.SetStatePath(statePath)
+	if err := restarted.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got, err := restarted.Poll(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 ||
+		!reflect.DeepEqual(got[0].Added, []string{"auth_clawback_enabled"}) || got[0].OperationID != "101" ||
+		!reflect.DeepEqual(got[1].Removed, []string{"auth_clawback_enabled"}) || got[1].OperationID != "102" {
+		t.Fatalf("after restart got %+v, want clawback set at 101 and cleared at 102", got)
+	}
+	if err := restarted.Checkpoint(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Without a state path the same restart is blind to both.
+	blind := NewWatcher(watchConfig(t), h)
+	h.setOptions("103", []int{flagAuthClawbackEnabled}, nil)
+	h.setOptions("104", nil, []int{flagAuthClawbackEnabled})
+	if err := blind.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if ts, err := blind.Poll(ctx); err != nil || len(ts) != 0 {
+		t.Fatalf("stateless restart got %+v, %v; want nothing (the documented blind spot)", ts, err)
+	}
+
+	// The checkpoint after the replay resumes at 102, so 103 and 104 replay
+	// once and 101 and 102 are not reported again.
+	again := NewWatcher(watchConfig(t), h)
+	again.SetStatePath(statePath)
+	if err := again.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got, err = again.Poll(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].OperationID != "103" || got[1].OperationID != "104" {
+		t.Fatalf("second restart got %+v, want only 103 and 104", got)
+	}
+}
+
+func TestWatcherStateFileIsAtomicAndValidated(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	statePath := filepath.Join(dir, "watch-state.json")
+	h := &memHorizon{flags: horizon.Flags{AuthRequired: true}}
+	h.setOptions("200", []int{flagAuthRevocable}, nil)
+
+	w := NewWatcher(watchConfig(t), h)
+	w.SetStatePath(statePath)
+	if err := w.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var s watchState
+	if err := json.Unmarshal(b, &s); err != nil {
+		t.Fatal(err)
+	}
+	want := issuerCheckpoint{Cursor: "200", Flags: horizon.Flags{AuthRequired: true, AuthRevocable: true}}
+	if s.Version != watchStateVersion || len(s.Issuers) != 1 || s.Issuers[watchedIssuer] != want {
+		t.Fatalf("state = %+v, want version %d and %s at %+v", s, watchStateVersion, watchedIssuer, want)
+	}
+	// No temporary file is left beside the state.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("state directory holds %d entries, want only the state file", len(entries))
+	}
+
+	// A corrupt or unknown-version file is refused, not silently reset.
+	for name, body := range map[string]string{
+		"corrupt":         `{"version":1,"issuers":`,
+		"unknown version": `{"version":2,"issuers":{}}`,
+	} {
+		if err := os.WriteFile(statePath, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		w := NewWatcher(watchConfig(t), h)
+		w.SetStatePath(statePath)
+		if err := w.Init(ctx); err == nil {
+			t.Errorf("%s state file: Init succeeded, want an error", name)
+		}
 	}
 }

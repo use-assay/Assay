@@ -18,11 +18,9 @@
 # unattended. Unattended automated merging of dependency changes is
 # explicitly rejected by this decision.
 #
-# Action pinning strategy: floating major tags (actions/checkout@v5) are the
-# current state. The actions-ecosystem updates below surface new majors as
-# PRs, but a tag is mutable upstream, so each workflow step is being pinned
-# to a full commit SHA with the version in a comment (done for this
-# repository as part of #132). New steps should be SHA-pinned the same way.
+# Action pinning strategy: a tag is mutable upstream, so every workflow step
+# is pinned to a full commit SHA with the version in a comment (#132, made
+# complete and enforced in CI by #602 via scripts/check-action-pins.sh).
 # Dependabot keeps SHAs current the same way it updates version tags.
 
 version: 2

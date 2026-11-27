@@ -26,6 +26,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -58,6 +59,84 @@ func gateCrateSourcePath(t *testing.T) string {
 	t.Helper()
 	return filepath.Join(repoRoot(t), "assay-contracts", "crates",
 		"assay-gate", "src", "lib.rs")
+}
+
+// registryHistorySourcePath resolves the Go event decoder. It reads the
+// contract event map by literal field name, so the names it uses are part of
+// the cross-language ABI.
+func registryHistorySourcePath(t *testing.T) string {
+	t.Helper()
+	return filepath.Join(repoRoot(t), "cmd", "assay", "registry_history.go")
+}
+
+// rustField is one field of a Rust struct as it appears in source text.
+type rustField struct {
+	name  string
+	typ   string
+	topic bool
+}
+
+// parseRustFields returns the fields of `pub struct name { ... }` in declaration
+// order. Comments are stripped first so a field named in prose cannot be
+// mistaken for a declaration. A `#[topic]` attribute immediately before a field
+// marks it as an event topic; everything else is payload.
+func parseRustFields(t *testing.T, src, name string) []rustField {
+	t.Helper()
+	commentRe := regexp.MustCompile(`//[^\n]*`)
+	src = commentRe.ReplaceAllString(src, "")
+
+	structRe := regexp.MustCompile(`pub struct ` + regexp.QuoteMeta(name) + `\s*\{([^}]*)\}`)
+	m := structRe.FindStringSubmatch(src)
+	if m == nil {
+		t.Fatalf("could not find `pub struct %s` in contract source", name)
+	}
+
+	fieldRe := regexp.MustCompile(`pub\s+(\w+)\s*:\s*(.+?),?\s*$`)
+	var fields []rustField
+	topicPending := false
+	for _, line := range strings.Split(m[1], "\n") {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case trimmed == "":
+			continue
+		case trimmed == "#[topic]":
+			topicPending = true
+			continue
+		case strings.HasPrefix(trimmed, "#["):
+			continue
+		}
+		fm := fieldRe.FindStringSubmatch(trimmed)
+		if fm == nil {
+			continue
+		}
+		fields = append(fields, rustField{
+			name:  fm[1],
+			typ:   strings.TrimSpace(fm[2]),
+			topic: topicPending,
+		})
+		topicPending = false
+	}
+	if len(fields) == 0 {
+		t.Fatalf("parsed no fields from `pub struct %s`", name)
+	}
+	return fields
+}
+
+// assertStructShape fails unless the parsed Rust struct has exactly want, in
+// order. A one-sided addition, removal, rename, reorder or type change fails:
+// the contract spec and any hand-written decoder depend on all of them.
+func assertStructShape(t *testing.T, structName string, got, want []rustField) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("%s field count mismatch: got %d fields (%v), want %d fields (%v)",
+			structName, len(got), got, len(want), want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("%s field %d mismatch: got %+v, want %+v",
+				structName, i, got[i], want[i])
+		}
+	}
 }
 
 // parseRustU32Consts extracts every `pub const NAME: u32 = <expr>;` from the
@@ -364,6 +443,151 @@ func TestABIDriftIntegratorCrate(t *testing.T) {
 		if got != want {
 			t.Errorf("assay-gate drift on %s: crate=%#x registry=%#x",
 				name, got, want)
+		}
+	}
+}
+
+// TestABIDriftPolicyMasks extends the drift check to the named policy masks
+// passed to is_safe_masked. A consumer that selects
+// POLICY_MASK_FREEZE_INCLUSIVE in Rust and the Go equivalent on the scanner
+// side must be selecting the same bits; a one-sided addition, rename or value
+// change silently changes which assets a policy admits.
+func TestABIDriftPolicyMasks(t *testing.T) {
+	src, err := os.ReadFile(contractSourcePath(t))
+	if err != nil {
+		t.Fatalf("read contract source: %v", err)
+	}
+	rust := parseRustU32Consts(t, string(src))
+
+	want := map[string]uint32{
+		"POLICY_MASK_CONFISCATION_ONLY": uint32(mechanics.PolicyMaskConfiscationOnly),
+		"POLICY_MASK_FREEZE_INCLUSIVE":  uint32(mechanics.PolicyMaskFreezeInclusive),
+	}
+
+	// Compare the whole POLICY_MASK_* family, not only the names we know:
+	// a policy mask added on one side alone is drift the per-name checks
+	// would miss.
+	var rustNames []string
+	for name := range rust {
+		if strings.HasPrefix(name, "POLICY_MASK_") {
+			rustNames = append(rustNames, name)
+		}
+	}
+	sort.Strings(rustNames)
+	var goNames []string
+	for name := range want {
+		goNames = append(goNames, name)
+	}
+	sort.Strings(goNames)
+	if strings.Join(rustNames, ",") != strings.Join(goNames, ",") {
+		t.Errorf("POLICY_MASK_* drift: rust has %v, Go defines %v", rustNames, goNames)
+	}
+
+	for name, goValue := range want {
+		got, ok := rust[name]
+		if !ok {
+			t.Errorf("rust const %s missing: adding a policy mask on one side "+
+				"without the other is drift", name)
+			continue
+		}
+		if got != goValue {
+			t.Errorf("policy-mask drift on %s: rust=%#x go=%#x", name, got, goValue)
+		}
+	}
+
+	// The documented relationships are part of the ABI too: the
+	// confiscation-only policy is exactly the confiscation mask, and the
+	// freeze-inclusive policy adds auth_revocable to it.
+	if mechanics.PolicyMaskConfiscationOnly != mechanics.ConfiscationMask {
+		t.Errorf("PolicyMaskConfiscationOnly = %#x, want ConfiscationMask %#x",
+			uint32(mechanics.PolicyMaskConfiscationOnly), uint32(mechanics.ConfiscationMask))
+	}
+	wantFreeze := mechanics.ConfiscationMask | mechanics.MechAuthRevocable
+	if mechanics.PolicyMaskFreezeInclusive != wantFreeze {
+		t.Errorf("PolicyMaskFreezeInclusive = %#x, want %#x",
+			uint32(mechanics.PolicyMaskFreezeInclusive), uint32(wantFreeze))
+	}
+}
+
+// TestABIDriftAttestationStructShape pins the batch `Attestation` argument
+// struct. It is the element type of attest_many and is published in the
+// contract spec; a field added, removed, renamed, reordered or retyped on one
+// side changes the encoding a caller must produce.
+func TestABIDriftAttestationStructShape(t *testing.T) {
+	src, err := os.ReadFile(contractSourcePath(t))
+	if err != nil {
+		t.Fatalf("read contract source: %v", err)
+	}
+
+	got := parseRustFields(t, string(src), "Attestation")
+	assertStructShape(t, "Attestation", got, []rustField{
+		{name: "asset", typ: "Address"},
+		{name: "severity", typ: "u32"},
+		{name: "flags", typ: "u32"},
+		{name: "evidence_hash", typ: "BytesN<32>"},
+	})
+}
+
+// TestABIDriftAttestationEventShape pins the fields of the AttestationEvent
+// struct. Even though the current contract does not publish it yet (tracked
+// separately), it is declared as part of the documented interface; changing
+// its field names on one side without the other would make an indexer decode
+// a different event than the contract emits.
+func TestABIDriftAttestationEventShape(t *testing.T) {
+	src, err := os.ReadFile(contractSourcePath(t))
+	if err != nil {
+		t.Fatalf("read contract source: %v", err)
+	}
+
+	got := parseRustFields(t, string(src), "AttestationEvent")
+	assertStructShape(t, "AttestationEvent", got, []rustField{
+		{name: "asset", typ: "Address"},
+		{name: "previous", typ: "Option<Safety>"},
+		{name: "current", typ: "Safety"},
+	})
+}
+
+// TestABIDriftEventFieldNames checks the event payload field names the Go
+// decoder reads against the Rust event structs it decodes. The decoder looks
+// fields up by literal name, so a rename on either side silently drops data
+// (read as a zero value) rather than failing to decode.
+func TestABIDriftEventFieldNames(t *testing.T) {
+	src, err := os.ReadFile(contractSourcePath(t))
+	if err != nil {
+		t.Fatalf("read contract source: %v", err)
+	}
+	historySrc, err := os.ReadFile(registryHistorySourcePath(t))
+	if err != nil {
+		t.Fatalf("read registry history decoder: %v", err)
+	}
+
+	// Rust publishes only payload fields in the event map; topics are keyed
+	// separately. Collect the non-topic names from both event structs.
+	rustFields := map[string]bool{}
+	for _, event := range []string{"Attested", "Revoked"} {
+		for _, f := range parseRustFields(t, string(src), event) {
+			if !f.topic {
+				rustFields[f.name] = true
+			}
+		}
+	}
+
+	keyRe := regexp.MustCompile(`Fields\["(\w+)"\]`)
+	goFields := map[string]bool{}
+	for _, m := range keyRe.FindAllStringSubmatch(string(historySrc), -1) {
+		goFields[m[1]] = true
+	}
+
+	for name := range rustFields {
+		if !goFields[name] {
+			t.Errorf("Go event decoder does not read rust event field %q: a rename "+
+				"on either side silently drops the value", name)
+		}
+	}
+	for name := range goFields {
+		if !rustFields[name] {
+			t.Errorf("Go event decoder reads %q, which is not a payload field of "+
+				"the rust Attested/Revoked events", name)
 		}
 	}
 }

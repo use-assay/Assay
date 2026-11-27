@@ -117,7 +117,15 @@ type issuerState struct {
 type Watcher struct {
 	h       HorizonReader
 	issuers []*issuerState
+	// statePath, when set, is where the cursor and flags are persisted, so
+	// a restart resumes instead of starting from the current head.
+	statePath string
 }
+
+// SetStatePath makes the watcher persist its position to path and resume
+// from it on Init. Call it before Init. Without a state path, operations that
+// land while the watcher is down are never seen (docs/attester.md).
+func (w *Watcher) SetStatePath(path string) { w.statePath = path }
 
 // NewWatcher groups the configured assets by issuer (one issuer can back
 // several attested assets) and prepares one watch per issuer.
@@ -140,12 +148,35 @@ func NewWatcher(cfg *Config, h HorizonReader) *Watcher {
 	return w
 }
 
-// Init records each issuer's current flags and the newest operation's cursor,
+// Init establishes each issuer's baseline.
+//
+// An issuer with a checkpoint in the state file resumes from it: its stored
+// cursor and flags are restored, and the next Poll replays every operation
+// that landed since, so transitions made during downtime are still reported.
+//
+// Any other issuer (no state path, no file yet, or an issuer newly added to
+// the config) starts from its current flags and the newest operation's cursor,
 // so polling reports only changes made after this point. The cursor is read
 // before the flags: an operation landing in between is then already in the
 // baseline flags and replays as a no-op, rather than being missed.
+//
+// With a state path, the baseline is written out before Init returns, so a
+// crash before the first poll still resumes from here.
 func (w *Watcher) Init(ctx context.Context) error {
+	var saved *watchState
+	if w.statePath != "" {
+		var err error
+		if saved, err = loadWatchState(w.statePath); err != nil {
+			return fmt.Errorf("watch: %w", err)
+		}
+	}
 	for _, st := range w.issuers {
+		if saved != nil {
+			if cp, ok := saved.Issuers[st.issuer]; ok {
+				st.cursor, st.flags = cp.Cursor, cp.Flags
+				continue
+			}
+		}
 		latest, err := w.h.Operations(ctx, st.issuer, "", horizon.Descending, 1)
 		if err != nil {
 			return fmt.Errorf("watch %s: read latest operation: %w", st.issuer, err)
@@ -158,6 +189,24 @@ func (w *Watcher) Init(ctx context.Context) error {
 			return fmt.Errorf("watch %s: read flags: %w", st.issuer, err)
 		}
 		st.flags = acct.Flags
+	}
+	return w.Checkpoint()
+}
+
+// Checkpoint atomically writes every issuer's cursor and flags to the state
+// path. It is a no-op without one. Run calls it after each poll's transitions
+// have been emitted, so a crash between the two replays them on restart
+// (at-least-once) rather than dropping them.
+func (w *Watcher) Checkpoint() error {
+	if w.statePath == "" {
+		return nil
+	}
+	s := &watchState{Version: watchStateVersion, Issuers: make(map[string]issuerCheckpoint, len(w.issuers))}
+	for _, st := range w.issuers {
+		s.Issuers[st.issuer] = issuerCheckpoint{Cursor: st.cursor, Flags: st.flags}
+	}
+	if err := saveWatchState(w.statePath, s); err != nil {
+		return fmt.Errorf("watch: %w", err)
 	}
 	return nil
 }
@@ -212,8 +261,10 @@ func (w *Watcher) pollIssuer(ctx context.Context, st *issuerState) ([]FlagTransi
 }
 
 // Run polls every interval until ctx is done, calling emit for each
-// transition and onErr for each failed poll. A failed poll is reported, not
-// fatal: a Horizon blip must not stop the watch.
+// transition and onErr for each failed poll or checkpoint. A failure is
+// reported, not fatal: a Horizon blip must not stop the watch. After each
+// poll's transitions are emitted, the position is checkpointed; an issuer
+// whose fetch failed kept its cursor, so checkpointing it is safe.
 func (w *Watcher) Run(ctx context.Context, interval time.Duration, emit func(FlagTransition), onErr func(error)) error {
 	t := time.NewTicker(interval)
 	defer t.Stop()
@@ -227,6 +278,9 @@ func (w *Watcher) Run(ctx context.Context, interval time.Duration, emit func(Fla
 				emit(tr)
 			}
 			if err != nil && ctx.Err() == nil {
+				onErr(err)
+			}
+			if err := w.Checkpoint(); err != nil {
 				onErr(err)
 			}
 		}

@@ -154,6 +154,17 @@ func IsContractAddress(s string) bool {
 	return err == nil
 }
 
+// ContractIDBytes decodes a contract strkey (C…) to its 32-byte contract ID,
+// the value an XDR ScAddress of type CONTRACT carries. It rejects any strkey
+// that is not a well-formed contract address, including G… accounts.
+func ContractIDBytes(s string) ([]byte, error) {
+	id, err := decodeStrkey(strkeyVersionContract, s)
+	if err != nil {
+		return nil, fmt.Errorf("contract address %q: %w", s, err)
+	}
+	return id, nil
+}
+
 // CRC16 is CRC16-XMODEM, the checksum strkey appends (polynomial 0x1021, init 0).
 func CRC16(data []byte) uint16 {
 	return crc16XModem(data)

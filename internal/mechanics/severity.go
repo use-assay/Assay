@@ -143,6 +143,10 @@ const (
 	// MechTrustlineDeauthorized means the specific holder's trustline has
 	// is_authorized unset: the holder cannot currently transact.
 	MechTrustlineDeauthorized Mechanic = 1 << 7
+	// MechTrustlineMaintainLiabilities means the specific holder's trustline is
+	// in the authorized_to_maintain_liabilities state (CAP-0018): the holder
+	// cannot send or receive but existing open offers remain active.
+	MechTrustlineMaintainLiabilities Mechanic = 1 << 8
 )
 
 // CapabilityMask covers the mechanics that are issuer powers over holders:
@@ -166,6 +170,19 @@ const CapabilityMask = MechAuthRequired | MechAuthRevocable | MechClawbackEnable
 // Any asset matching this mask has severity >= High by construction.
 const ConfiscationMask = MechClawbackEnabled
 
+// PolicyMaskConfiscationOnly is the forbidden-bit mask for a policy that
+// accepts a freeze but never a confiscation. It is the Go-side name for the
+// contract's POLICY_MASK_CONFISCATION_ONLY and is passed to is_safe_masked.
+// The two definitions are pinned together by the ABI drift test.
+const PolicyMaskConfiscationOnly = ConfiscationMask
+
+// PolicyMaskFreezeInclusive is the forbidden-bit mask for a policy that
+// refuses both freeze and confiscation capability. It is the Go-side name for
+// the contract's POLICY_MASK_FREEZE_INCLUSIVE and is passed to
+// is_safe_masked. The two definitions are pinned together by the ABI drift
+// test.
+const PolicyMaskFreezeInclusive = MechAuthRevocable | MechClawbackEnabled
+
 // names is ordered by bit position for stable output.
 var names = []struct {
 	bit  Mechanic
@@ -179,6 +196,7 @@ var names = []struct {
 	{MechBlocklisted, "blocklisted"},
 	{MechTrustlineClawbackEnabled, "trustline_clawback_enabled"},
 	{MechTrustlineDeauthorized, "trustline_deauthorized"},
+	{MechTrustlineMaintainLiabilities, "trustline_maintain_liabilities"},
 }
 
 // Names returns the set bits as their ledger flag names, in bit order.

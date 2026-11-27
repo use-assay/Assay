@@ -107,6 +107,9 @@ func (s *Server) withObservability(next http.Handler) http.Handler {
 		ctx = context.WithValue(ctx, loggerKey{}, logger)
 
 		w.Header().Set(requestIDHeader, id)
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
