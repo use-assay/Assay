@@ -1,0 +1,28 @@
+NETWORK_PASSPHRASE="Public Global Stellar Network ; September 2015"
+
+ACCOUNTS=[
+"GBDOQCFL6BJ3KCISRBD5TJYSFAUWSUZOBEWOIJ2DPA5OGUAYZIEMNGCT",
+"GA2TD277OP77MSXVKN4JNJRJQBHXCQL5X3JJMPQ2CDZF462746FVWXZ4"
+]
+VERSION="2.0.0"
+
+[DOCUMENTATION]
+ORG_NAME="ZZZ"
+ORG_TWITTER="@ZZZ"
+ORG_LOGO="https://i.ibb.co/MRCHWQC/ZZZ.jpg"
+ORG_OFFICIAL_EMAIL="ZZZ@tutanota.com"
+
+
+[[CURRENCIES]]
+code="ZZZXLM"
+issuer="GA2TD277OP77MSXVKN4JNJRJQBHXCQL5X3JJMPQ2CDZF462746FVWXZ4"
+anchor_asset="false"
+name="ZZZ"
+desc="ZZZ [ZZZXLM], is the aggregated view of different kind of transactions in Stellar, where this token was traded, participated or was referenced. "
+conditions="There will only ever be 500000000 ZZZXLM tokens in honor and support of law enforcement Now and Forever. Issuer Allows Any Stellar Account To Add This Asset. "
+image="https://i.ibb.co/MRCHWQC/ZZZ.jpg"
+fixed_number=500000000
+max_number=500000000
+is_unlimited=false
+#ZZZXLM was issued using the open and inclusive Stellar blockchain network.
+

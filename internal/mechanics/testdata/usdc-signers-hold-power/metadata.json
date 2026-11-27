@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "subject": "usdc-signers-hold-power",
+  "why": "the counterpart to zzz-signer-locked: the same USDC issuer, captured with its signing configuration, has master key weight 0 but four other signers of weight 1 and a medium threshold of 2. The account can still authorize operations, so the mutability finding must NOT report locked-by-signers (#359).",
+  "files": [
+    {"file": "asset.json", "url": "https://horizon.stellar.org/assets?asset_code=USDC&asset_issuer=GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", "captured": "2026-08-10"},
+    {"file": "account.json", "url": "https://horizon.stellar.org/accounts/GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", "captured": "2026-11-23"},
+    {"file": "stellar.toml.status", "url": "https://circle.com/.well-known/stellar.toml", "captured": "2026-08-10", "note": "the endpoint did not answer 200 at capture time (HTTP 404), so reciprocal SEP-1 verification fails by the letter of the spec"},
+    {"file": "blocked.json", "url": "https://api.stellar.expert/explorer/directory/blocked-domains/circle.com", "captured": "2026-08-10"},
+    {"file": "directory.json", "url": "https://api.stellar.expert/explorer/directory/GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", "captured": "2026-08-10"},
+    {"file": "stellar-expert-asset.json", "url": "https://api.stellar.expert/explorer/public/asset/USDC-GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", "captured": "2026-09-25"}
+  ],
+  "expected": {
+    "state": "valid",
+    "base": "medium",
+    "severity": "medium",
+    "escalated": false,
+    "undetermined": false,
+    "accountability": "unverified",
+    "checks": {
+      "capability": {"severity": "medium", "mechanics": ["auth_revocable"]},
+      "mutability": {"severity": "clear"},
+      "sep1-domain": {"severity": "clear", "mechanics": ["domain_unverified"]},
+      "reputation": {"severity": "clear", "escalation": true}
+    }
+  }
+}

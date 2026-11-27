@@ -1,0 +1,22 @@
+{
+  "account_id": "GA2TD277OP77MSXVKN4JNJRJQBHXCQL5X3JJMPQ2CDZF462746FVWXZ4",
+  "home_domain": "zzztokens.netlify.app",
+  "flags": {
+    "auth_required": false,
+    "auth_revocable": false,
+    "auth_immutable": false,
+    "auth_clawback_enabled": false
+  },
+  "thresholds": {
+    "low_threshold": 1,
+    "med_threshold": 1,
+    "high_threshold": 1
+  },
+  "signers": [
+    {
+      "weight": 0,
+      "key": "GA2TD277OP77MSXVKN4JNJRJQBHXCQL5X3JJMPQ2CDZF462746FVWXZ4",
+      "type": "ed25519_public_key"
+    }
+  ]
+}

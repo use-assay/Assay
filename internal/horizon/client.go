@@ -215,17 +215,51 @@ func (s *AssetStat) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// AccountThresholds is the account's signing-threshold set, as Horizon names
+// it on the /accounts record.
+type AccountThresholds struct {
+	Low  int `json:"low_threshold"`
+	Med  int `json:"med_threshold"`
+	High int `json:"high_threshold"`
+}
+
+// Signer is one entry of Horizon's account signers array. `Key` is the signer
+// identifier (a G… account, a T… pre-auth tx hash, or an ed25519 key), `Type`
+// is Horizon's signer-type name, and `Weight` is the signing weight.
+//
+// The master key appears as an ed25519_public_key signer whose Key is the
+// account ID. A weight-0 master key entry is how a signer-locked issuer reads:
+// the account itself can no longer sign.
+type Signer struct {
+	Key    string `json:"key"`
+	Weight int    `json:"weight"`
+	Type   string `json:"type"`
+}
+
 // Account is the subset of Horizon's /accounts record that Assay reasons about.
 type Account struct {
 	AccountID    string `json:"account_id"`
 	HomeDomain   string `json:"home_domain"`
 	Flags        Flags  `json:"flags"`
 	LatestLedger int64  `json:"latest_ledger,omitempty"`
+	// Thresholds and Signers answer whether the account can still sign at all.
+	// They are read by the mutability finding (#359).
+	Thresholds AccountThresholds `json:"thresholds"`
+	Signers    []Signer          `json:"signers"`
+	// SigningKnown reports whether the record carried BOTH a thresholds object
+	// and a signers array. It is false for fixtures captured before the
+	// mutability finding read signing state, and for any response that omits
+	// them; a check must never read an absent signers array as "no signers",
+	// because that would turn "we did not look" into the reassurance that the
+	// issuer is locked.
+	SigningKnown bool `json:"-"`
 }
 
 // UnmarshalJSON decodes an account record, requiring its flags object; see
 // requireFlagsObject for why an absent key must be an error rather than an
-// all-false flag set.
+// all-false flag set. Thresholds and signers are optional at decode time so
+// older fixtures keep loading, but their presence is recorded in
+// SigningKnown rather than inferred from a nil/zero value.
 func (a *Account) UnmarshalJSON(b []byte) error {
 	type wire Account
 	var w wire
@@ -235,8 +269,52 @@ func (a *Account) UnmarshalJSON(b []byte) error {
 	if err := requireFlagsObject(b); err != nil {
 		return err
 	}
+	var presence struct {
+		Thresholds json.RawMessage `json:"thresholds"`
+		Signers    json.RawMessage `json:"signers"`
+	}
+	if err := json.Unmarshal(b, &presence); err != nil {
+		return fmt.Errorf("horizon: decode account: %w", err)
+	}
+	w.SigningKnown = presence.Thresholds != nil && presence.Signers != nil
 	*a = Account(w)
 	return nil
+}
+
+// MasterKeyWeight returns the account's master key weight and the thresholds
+// that decide whether a transaction still needs a signature.
+//
+// The second return is false when the record did not publish signers and
+// thresholds; callers must treat that as "signing state unknown", never as a
+// weight of zero. When Horizon omits the master-key entry from signers, the
+// master weight is Stellar's default of 1.
+func (a *Account) MasterKeyWeight() (weight int, thresholds AccountThresholds, known bool) {
+	if a == nil || !a.SigningKnown {
+		return 0, AccountThresholds{}, false
+	}
+	for _, s := range a.Signers {
+		if s.Key == a.AccountID && s.Type == "ed25519_public_key" {
+			return s.Weight, a.Thresholds, true
+		}
+	}
+	return 1, a.Thresholds, true
+}
+
+// OtherSignerWeight returns the total weight of every signer that is not the
+// account's master key, and whether the record published signing state.
+func (a *Account) OtherSignerWeight() (weight int, known bool) {
+	if a == nil || !a.SigningKnown {
+		return 0, false
+	}
+	for _, s := range a.Signers {
+		if s.Key == a.AccountID && s.Type == "ed25519_public_key" {
+			continue
+		}
+		if s.Weight > 0 {
+			weight += s.Weight
+		}
+	}
+	return weight, true
 }
 
 // TrustlineBalance is a single credit-trustline entry from the balances array

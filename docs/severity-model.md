@@ -184,6 +184,50 @@ Severity is therefore the **highest single capability present**, not a sum.
 Confirmed empirically: across 2,400 sampled live assets, exactly zero have
 clawback without revocable.
 
+## The SAC admin is evidence, not a severity input
+
+A classic asset's Stellar Asset Contract has an **admin**. It defaults to the
+issuer when the SAC is first enabled, and can be moved with the SAC's
+`set_admin`, which requires authorization from the current admin — the issuer,
+the first time. A SAC admin can be a Stellar account (`G…`) or another smart
+contract (`C…`), and the admin's authority is independent of the issuer
+account's own signers and thresholds ([CAP-46-06](https://github.com/stellar/stellar-protocol/blob/master/core/cap-46-06.md)).
+
+That matters because the issuer flags Assay reads describe the issuer account,
+not the SAC admin. If the admin has moved, the flags no longer describe *who*
+can exercise the contract's administrative powers. Clawback through the SAC
+still requires the classic asset to have `auth_clawback_enabled`, and
+`set_authorized` still requires `auth_revocable` (CAP-46-06), but a locked
+issuer can leave a moved SAC admin still able to mint, claw back or freeze. A
+contract admin's own logic decides when it does so, and Assay cannot inspect it.
+
+**Decision: the SAC admin is evidence only.** Severity stays capability-only
+from the issuer flags, and the SAC admin never raises or lowers it. Two reasons.
+First, the power's existence is still the flag's: a moved admin on an asset
+without `auth_clawback_enabled` cannot claw back through the SAC. Second,
+letting an unverified contract address change a severity would make the number
+depend on data the scanner cannot check, which is the same failure mode as
+treating attribution as a capability input.
+
+The capability finding states the moved admin, names it, and cites the contract
+read — but only when it has moved off the issuer. When the admin still is the
+issuer, neither the reasoning nor the evidence changes, so the `evidence_hash`
+of an attestation does not move for an asset whose admin never changed. When
+the admin could not be read (no RPC endpoint, an RPC failure, an unreadable
+entry), the report does not claim it is the issuer: "not read" and "still the
+issuer" are different facts, and the finding keeps the latter unsaid.
+
+The behaviour was verified against testnet on 2026-11-23. The issuer-admin case
+is `ASSAYPRB-GAIFQB42…`, whose SAC
+`CAQRN7WMPPS2VBQQVIUQXGRVYIBXPLT65KIQAI52FJCFFZQ6SG4PP7R4` was deployed by its
+issuer in transaction
+`ce28eb7dbad21005faff17f39288479c6602d4c3e88f5f385ed1facfb7cbc5e1` and whose
+`admin` read back as the issuer. The moved-admin case is
+`zUSDC-GAA3S6XLOK…`, SAC
+`CAIUOHVZ77RSCDBNWR3BCZPTWHPUXQRTQXSW4VE3HGC2M5PRPJNSFBRU`, whose admin is the
+contract `CDFQ5K2BPKB7BWNW2SJPGIIK5OOFQIR434MOX5YYBDKAN3M5CFVJKHR2`. Both raw
+ledger entries are committed as fixtures under `internal/sacadmin/testdata/`.
+
 ## The levels
 
 Each level is pinned to a specific capability, so the number is
@@ -246,6 +290,9 @@ depends entirely on what is already set:
 - Locked with no dangerous flags — a genuine safety property. Clawback can never
   be added.
 - Locked with clawback — permanent. The power can never be given up.
+- Locked by signers — the same durability without `auth_immutable`: master key
+  weight 0, no other signer, and a non-zero medium threshold mean no operation
+  can ever be authorized to change the flags.
 
 Assay reports this as its own finding — [`mutability`](checks.md#mutability) —
 rather than scoring it, because a single number cannot carry a conditional.
@@ -263,6 +310,19 @@ Assay reports risk for a **prospective** holder — "what happens if I open a
 trustline now" — which is what current issuer flags answer exactly. It is not a
 claim about anyone's existing position. Checking an existing trustline's own
 flags is [a separate check that does not exist yet](checks.md).
+
+**That clawback stops at trustlines.** It does not: CAP-0035 also gives an
+issuer whose asset has `auth_clawback_enabled` the `ClawbackClaimableBalanceOp`
+operation, which claws back a claimable balance of that asset
+([CAP-0035](https://github.com/stellar/stellar-protocol/blob/master/core/cap-0035.md)).
+So "can the issuer take my tokens" covers tokens in transit as well as tokens
+held on a trustline. That matters to a wallet that uses claimable balances for
+onboarding or escrow: the balance can be reclaimed before the recipient claims
+it, and the recipient never had a trustline for the issuer to reach. This is a
+statement about the reach of a capability Assay already reports, not a new
+capability and not a new severity input — an asset's severity is unchanged by
+this paragraph. Severity is still derived from the issuer's authorization
+flags and nothing else.
 
 **That a `clear` asset is safe.** It means the *issuer* has no special power.
 The asset can still be worthless, a rug pull by another mechanism, or an

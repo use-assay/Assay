@@ -69,6 +69,22 @@ and the expected verdict.
 | `synthetic-code-claimed-different-issuer/stellar.toml` | https://impersonation.example/.well-known/stellar.toml — constructed: claims AQUA code under wrong issuer GDSTRSHXHGJ7ZIVRBXEYE5Q74XUVCUSEKEBR7UCHEUUEK72N7I7KJ6JH (2026-11-22, #379) |
 | `synthetic-code-claimed-different-issuer/blocked.json` | https://api.stellar.expert/explorer/directory/blocked-domains/impersonation.example — constructed synthetic payload (2026-11-22, #379) |
 | `synthetic-code-claimed-different-issuer/directory.json` | https://api.stellar.expert/explorer/directory/GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA — constructed: domain set to impersonation.example so it agrees with home_domain (2026-11-22, #379) |
+| `zzz-signer-locked/asset.json` | https://horizon.stellar.org/assets?asset_code=ZZZXLM&asset_issuer=GA2TD277OP77MSXVKN4JNJRJQBHXCQL5X3JJMPQ2CDZF462746FVWXZ4 (captured 2026-11-23, #359) |
+| `zzz-signer-locked/account.json` | https://horizon.stellar.org/accounts/GA2TD277OP77MSXVKN4JNJRJQBHXCQL5X3JJMPQ2CDZF462746FVWXZ4 (captured 2026-11-23; signers show master weight 0 and no other signer, thresholds 1/1/1, #359) |
+| `zzz-signer-locked/stellar.toml` | https://zzztokens.netlify.app/.well-known/stellar.toml (captured 2026-11-23, in full) |
+| `zzz-signer-locked/blocked.json` | https://api.stellar.expert/explorer/directory/blocked-domains/zzztokens.netlify.app (captured 2026-11-23, returns `blocked: false`) |
+| `usdc-signers-hold-power/asset.json` | https://horizon.stellar.org/assets?asset_code=USDC&asset_issuer=GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN (copied from usdc-revocable-regulated, 2026-08-10, #359) |
+| `usdc-signers-hold-power/account.json` | https://horizon.stellar.org/accounts/GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN (captured 2026-11-23; signers show master weight 0 with four weight-1 signers and thresholds 2/2/2, #359) |
+| `usdc-signers-hold-power/stellar.toml.status` | https://circle.com/.well-known/stellar.toml (copied from usdc-revocable-regulated, 2026-08-10, HTTP 404) |
+| `usdc-signers-hold-power/blocked.json` | https://api.stellar.expert/explorer/directory/blocked-domains/circle.com (copied from usdc-revocable-regulated, 2026-08-10) |
+| `usdc-signers-hold-power/directory.json` | https://api.stellar.expert/explorer/directory/GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN (copied from usdc-revocable-regulated, 2026-08-10) |
+| `usdc-signers-hold-power/stellar-expert-asset.json` | https://api.stellar.expert/explorer/public/asset/USDC-GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN (copied from usdc-revocable-regulated, 2026-09-25) |
+| `synthetic-sac-admin-moved/asset.json` | https://horizon-testnet.stellar.org/assets?asset_code=zUSDC&asset_issuer=GAA3S6XLOKFX3SGDQ3VGLLXMCFMVB7E6WYNGHRGIRD62AEJ73ASPQ4KX (captured 2026-11-23, #356) |
+| `synthetic-sac-admin-moved/account.json` | https://horizon-testnet.stellar.org/accounts/GAA3S6XLOKFX3SGDQ3VGLLXMCFMVB7E6WYNGHRGIRD62AEJ73ASPQ4KX (captured 2026-11-23, #356) |
+| `synthetic-sac-admin-moved/sac-admin.json` | https://stellar.expert/explorer/testnet/contract/CAIUOHVZ77RSCDBNWR3BCZPTWHPUXQRTQXSW4VE3HGC2M5PRPJNSFBRU — read with getLedgerEntries from https://soroban-testnet.stellar.org (2026-11-23, #356); the raw entry XDR is committed at `internal/sacadmin/testdata/moved-admin.b64` |
+| `synthetic-sac-admin-issuer/asset.json` | Constructed from the live testnet issuer account GAIFQB42YWW6IRWMT7WFFZUB22HJ2SMBZ6SDMVEXALGE6XK5GGB3PPHJ (2026-11-23, #356): ASSAYPRB has no issued trustlines, so Horizon's /assets list has no record for it |
+| `synthetic-sac-admin-issuer/account.json` | https://horizon-testnet.stellar.org/accounts/GAIFQB42YWW6IRWMT7WFFZUB22HJ2SMBZ6SDMVEXALGE6XK5GGB3PPHJ (captured 2026-11-23, #356) |
+| `synthetic-sac-admin-issuer/sac-admin.json` | https://stellar.expert/explorer/testnet/contract/CAQRN7WMPPS2VBQQVIUQXGRVYIBXPLT65KIQAI52FJCFFZQ6SG4PP7R4 — read with getLedgerEntries from https://soroban-testnet.stellar.org (2026-11-23, #356); deployed by the issuer in transaction ce28eb7dbad21005faff17f39288479c6602d4c3e88f5f385ed1facfb7cbc5e1, and `stellar contract invoke --id CAQRN… -- admin` returned the issuer. The raw entry XDR is committed at `internal/sacadmin/testdata/issuer-admin.b64` |
 
 `doge-reputation-outage` is the same real asset as `doge-noflags-scam`, captured
 for the case where a source failed. Its `directory.err` is a deliberate marker,

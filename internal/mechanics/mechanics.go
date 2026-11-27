@@ -271,6 +271,32 @@ type Subject struct {
 	// this case because the second copy of flags is unavailable.
 	IssuerMerged bool
 
+	// SACAdmin is the administrator of the asset's Stellar Asset Contract, as a
+	// G… or C… strkey, when it could be read (#356). It defaults to the issuer
+	// when the SAC is first enabled and can be moved with the SAC's set_admin
+	// (CAP-46-06). Once moved, the issuer flags no longer describe who can mint,
+	// claw back or set_authorized through the contract.
+	//
+	// It is evidence only: nothing in the severity rules reads it. When it was
+	// not read, SACAdmin is empty and SACAdminErr/SACAdminSkipped says why — the
+	// two are distinct, because "the RPC failed" and "no RPC endpoint was
+	// configured" are different facts from "the admin is the issuer".
+	SACAdmin string
+	// SACAddress is the SAC whose admin was read, so the statement can be
+	// re-checked against a specific contract.
+	SACAddress string
+	// SACAdminURL attributes the admin read to the RPC endpoint or explorer page.
+	SACAdminURL string
+	// SACAdminErr records why the admin could not be read, verbatim.
+	SACAdminErr string
+	// SACAdminSkipped records that the lookup was not attempted at all (no RPC
+	// endpoint configured for this network), which is not the same as a failed
+	// fetch.
+	SACAdminSkipped     string
+	SACAdminFetchedAt   time.Time
+	SACAdminAttemptedAt time.Time
+	SACAdminLedger      int64
+
 	// Toml is the issuer's stellar.toml if it resolved. TomlErr records why it
 	// did not, and is reported verbatim rather than being smoothed over.
 	// A resolved Doc carries its own FetchedAt; TomlAttemptedAt is when the

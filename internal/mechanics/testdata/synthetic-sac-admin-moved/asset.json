@@ -1,0 +1,33 @@
+{
+  "_links": {
+    "toml": {
+      "href": ""
+    }
+  },
+  "asset_type": "credit_alphanum12",
+  "asset_code": "zUSDC",
+  "asset_issuer": "GAA3S6XLOKFX3SGDQ3VGLLXMCFMVB7E6WYNGHRGIRD62AEJ73ASPQ4KX",
+  "paging_token": "zUSDC_GAA3S6XLOKFX3SGDQ3VGLLXMCFMVB7E6WYNGHRGIRD62AEJ73ASPQ4KX_credit_alphanum12",
+  "num_claimable_balances": 0,
+  "num_liquidity_pools": 0,
+  "num_contracts": 0,
+  "accounts": {
+    "authorized": 1,
+    "authorized_to_maintain_liabilities": 0,
+    "unauthorized": 0
+  },
+  "claimable_balances_amount": "0.0000000",
+  "liquidity_pools_amount": "0.0000000",
+  "contracts_amount": "0.0000000",
+  "balances": {
+    "authorized": "1.0000000",
+    "authorized_to_maintain_liabilities": "0.0000000",
+    "unauthorized": "0.0000000"
+  },
+  "flags": {
+    "auth_required": false,
+    "auth_revocable": false,
+    "auth_immutable": false,
+    "auth_clawback_enabled": false
+  }
+}

@@ -241,6 +241,13 @@ Flags:
 - `-contract ID` — registry contract ID (default: live deployment, env `ASSAY_CONTRACT_ID`).
 - `-network NAME` — network used to derive the SAC ID (default: `testnet`, env `ASSAY_NETWORK`).
 
+Every command that scans also reads the asset's Stellar Asset Contract admin when
+an RPC endpoint is available: env `ASSAY_SAC_ADMIN_RPC_URL`. A testnet scan
+defaults to the SDF testnet endpoint; a pubnet scan skips the read unless the
+variable is set, because there is no pubnet RPC endpoint this project treats as
+authoritative. The admin is evidence only and never changes severity; see
+[the severity model](severity-model.md#the-sac-admin-is-evidence-not-a-severity-input).
+
 The contract and network default to `ASSAY_CONTRACT_ID` and `ASSAY_NETWORK` (or the
 compiled defaults: live testnet registry and testnet). The verdict classes are deliberately
 distinct, and each has its own exit code:

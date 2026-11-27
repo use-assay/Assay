@@ -37,6 +37,15 @@ issuer can actually do.
 `auth_immutable` is not scored here: whether the flag set can still change is a
 separate, first-class finding — see [`mutability`](#mutability).
 
+**The SAC admin (#356).** The asset's Stellar Asset Contract has an admin that
+defaults to the issuer and can be moved with `set_admin` (CAP-46-06). When it has
+moved off the issuer, this finding states that fact, names the admin, and cites
+the contract instance read — as evidence only. It never changes severity: the
+power still exists only when the issuer flags grant it, and a contract admin's
+logic is not something the scanner can verify. The fact is stated only when the
+admin has moved, so the `evidence_hash` of an asset whose admin never changed
+does not move. See [the severity model](severity-model.md#the-sac-admin-is-evidence-not-a-severity-input).
+
 ### The two copies of the flags
 
 Horizon publishes the issuer's authorization flags **twice**: on the `/assets`
@@ -98,7 +107,7 @@ the asset and issuer-account URLs are both cited.
 `auth_immutable` is not a power over holders, so it is deliberately not a
 severity level — see [the severity model](severity-model.md). Its meaning is
 conditional, and this check reports the condition rather than folding it into a
-number. There are three states, each with its own reasoning:
+number. There are four states, each with its own reasoning:
 
 - **Locked with no dangerous flags** — a durable safety property. Because the
   flag set can never change, `auth_revocable` and `auth_clawback_enabled` can
@@ -108,6 +117,15 @@ number. There are three states, each with its own reasoning:
   given up, because `AUTH_IMMUTABLE_FLAG` cannot be cleared once set (CAP-0035
   makes all `AUTH_*` flags read-only). Locking does not make the power safer; it
   removes any future in which the issuer relinquishes it.
+- **Locked by signers** — the same durability reached without
+  `auth_immutable`. The issuer account has master key weight 0, no other signer
+  carrying weight, and a non-zero medium threshold, so no operation can be
+  authorized: in particular `set_options`, which is how both signers and issuer
+  flags change. A locked issuer that already holds freeze or clawback keeps it;
+  one that holds neither can never gain them. This state does **not** set the
+  `auth_immutable` mechanic bit, because that bit is the ledger's record that
+  the flag itself is set — the report must not claim a flag the issuer does not
+  hold. Like every mutability state, it never changes severity (#359).
 - **Not locked** — the issuer may add freeze or confiscation later. Adding
   `auth_revocable` would immediately allow the issuer to freeze existing
   trustlines; existing holders are exposed as soon as the flag is set. Adding
@@ -116,13 +134,13 @@ number. There are three states, each with its own reasoning:
   the state a prospective holder wants surfaced, because it is the one where
   today's `clear` is not a durable answer.
 
-**Flag source.** The check reads the issuer flags from the same Horizon
-`/assets` record the `capability` check derives severity from, so the two
-findings cannot disagree about the flag set. `auth_immutable` is also carried on
-the issuer `/accounts` record; that is a second ingestion path Assay does not yet
-reconcile, and taking the `/assets` record here keeps this finding consistent
-with the severity reported beside it. The gap is recorded in
-[the attestation run](attestation-run.md#what-the-checks-can-get-wrong).
+**Flag and signer source.** The check reads the issuer flags from the same
+reconciled set the `capability` check derives severity from, so the two findings
+cannot disagree about the flag set. For the signer-locked state it also reads
+the issuer's `/accounts` record: the `thresholds` object and the `signers`
+array. When a record does not publish them, the check says so and does not claim
+a signer lock it never read — an absent `signers` array is not the same fact as
+an empty one.
 
 **No evidence.** The flag read is already attributed by the `capability`
 finding's Horizon evidence. `evidence_hash` is a SHA-256 over a **sorted list**

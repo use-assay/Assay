@@ -1,0 +1,11 @@
+{
+  "asset_type": "credit_alphanum12",
+  "asset_code": "ASSAYPRB",
+  "asset_issuer": "GAIFQB42YWW6IRWMT7WFFZUB22HJ2SMBZ6SDMVEXALGE6XK5GGB3PPHJ",
+  "flags": {
+    "auth_required": false,
+    "auth_revocable": false,
+    "auth_immutable": false,
+    "auth_clawback_enabled": false
+  }
+}

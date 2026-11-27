@@ -87,6 +87,8 @@ var subjectDirs = []string{
 	"synthetic-auth-required-gating",
 	"synthetic-code-claimed-different-issuer",
 	"synthetic-merged-issuer",
+	"zzz-signer-locked",
+	"usdc-signers-hold-power",
 }
 
 // metadataSchemaVersion is the schema_version Corpus accepts. It is pinned

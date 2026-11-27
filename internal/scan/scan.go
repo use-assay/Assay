@@ -22,6 +22,8 @@ import (
 	"github.com/use-assay/assay/internal/clockskew"
 	"github.com/use-assay/assay/internal/horizon"
 	"github.com/use-assay/assay/internal/mechanics"
+	"github.com/use-assay/assay/internal/sac"
+	"github.com/use-assay/assay/internal/sacadmin"
 	"github.com/use-assay/assay/internal/sep1"
 	"github.com/use-assay/assay/internal/stellarexpert"
 )
@@ -224,6 +226,18 @@ type Scanner struct {
 	// mistake, it is a false attestation.
 	Network horizon.Network
 
+	// SACAdminRPC is the Soroban RPC endpoint used to read each asset's Stellar
+	// Asset Contract admin (#356). NewWithOptions seeds it from
+	// ASSAY_SAC_ADMIN_RPC_URL; the default rule is described below.
+	//
+	// When empty, the SDF testnet endpoint is used for a testnet scan and the
+	// lookup is skipped on pubnet: this repository does not publish a pubnet RPC
+	// endpoint it is willing to treat as authoritative, and the admin read is
+	// evidence only, so a skipped lookup is recorded rather than guessed. The
+	// skipped state is distinct from a failed fetch and from "the admin is the
+	// issuer".
+	SACAdminRPC string
+
 	// AssetListURLs are the curated lists consulted for every scan, in order.
 	//
 	// It is empty by default, deliberately: no list is shipped as
@@ -308,13 +322,14 @@ func New() *Scanner {
 // docs/caching.md.
 func NewWithOptions(opts Options) *Scanner {
 	return &Scanner{
-		Horizon: horizon.New(os.Getenv("ASSAY_HORIZON_URL")),
-		Toml:    sep1.NewFetcher(),
-		Expert:  stellarexpert.NewWithOptions(os.Getenv("ASSAY_STELLAREXPERT_URL"), expertOptions(opts)),
-		Engine:  mechanics.NewEngine(),
-		Lists:   assetlist.NewWithOptions(assetlist.Options{TTL: opts.AssetListTTL}),
-		RPC:     &http.Client{Timeout: 15 * time.Second},
-		Network: horizon.PublicNet,
+		Horizon:     horizon.New(os.Getenv("ASSAY_HORIZON_URL")),
+		Toml:        sep1.NewFetcher(),
+		Expert:      stellarexpert.NewWithOptions(os.Getenv("ASSAY_STELLAREXPERT_URL"), expertOptions(opts)),
+		Engine:      mechanics.NewEngine(),
+		Lists:       assetlist.NewWithOptions(assetlist.Options{TTL: opts.AssetListTTL}),
+		RPC:         &http.Client{Timeout: 15 * time.Second},
+		Network:     horizon.PublicNet,
+		SACAdminRPC: os.Getenv("ASSAY_SAC_ADMIN_RPC_URL"),
 	}
 }
 
@@ -361,6 +376,19 @@ func (s *Scanner) resolveNetwork() (horizon.Network, error) {
 		return "", fmt.Errorf("scan: %w; set Scanner.Network to the passphrase of the ledger Horizon at %s serves",
 			deriveErr, s.Horizon.BaseURL)
 	}
+}
+
+// sacAdminRPC returns the Soroban RPC endpoint to read the SAC admin from, or
+// "" when none is configured for this network. See Scanner.SACAdminRPC for why
+// pubnet has no default.
+func (s *Scanner) sacAdminRPC(network horizon.Network) string {
+	if s.SACAdminRPC != "" {
+		return s.SACAdminRPC
+	}
+	if network == horizon.TestNet {
+		return sacadmin.DefaultTestnetURL
+	}
+	return ""
 }
 
 func (s *Scanner) fetchTimeout() time.Duration {
@@ -442,6 +470,19 @@ func (s *Scanner) Subject(ctx context.Context, a mechanics.Asset) (*mechanics.Su
 	var (
 		wg sync.WaitGroup
 
+		// The SAC admin (#356) is fetched alongside the reputation lookups. It is
+		// evidence only, so every failure — no endpoint configured, an RPC error,
+		// an unreadable entry — is recorded on the subject and never fails the
+		// scan. "Skipped" and "failed" stay distinct from "the admin is the
+		// issuer".
+		sacAdmin            string
+		sacAdminErr         string
+		sacAdminSkipped     string
+		sacAdminURL         string
+		sacAdminAttemptedAt time.Time
+		sacAdminFetchedAt   time.Time
+		sacAdminLedger      int64
+
 		// StellarExpert's asset metadata is fetched best-effort alongside the
 		// other post-account lookups. A network drop is recorded on the subject
 		// as an undetermined fetch — the scan itself never fails, and the
@@ -473,6 +514,33 @@ func (s *Scanner) Subject(ctx context.Context, a mechanics.Asset) (*mechanics.Su
 		dirAttAt     time.Time
 		dirURL       string
 	)
+
+	sacAddr, sacAddrErr := sac.Address(a.Code, a.Issuer, string(network))
+	switch {
+	case sacAddrErr != nil:
+		sacAdminErr = "derive SAC address: " + sacAddrErr.Error()
+	case s.sacAdminRPC(network) == "":
+		sacAdminSkipped = "no Soroban RPC endpoint is configured for " + string(network) +
+			"; the SAC admin was not read (set ASSAY_SAC_ADMIN_RPC_URL)"
+	default:
+		sacAdminURL = s.sacAdminRPC(network)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sacCtx, cancel := context.WithTimeout(ctx, timeout)
+			defer cancel()
+			sacAdminAttemptedAt = s.now()
+			admin, err := sacadmin.New(sacAdminURL).Admin(sacCtx, sacAddr)
+			if err != nil {
+				// This is not an SEP-1-style HTTP status, so the raw error is
+				// recorded rather than flattened through CanonicalFailure.
+				sacAdminErr = err.Error()
+				return
+			}
+			sacAdmin = admin
+			sacAdminFetchedAt = s.now()
+		}()
+	}
 
 	// Canonicalise the issuer's free-text home_domain once, here, so that
 	// every consumer of the string agrees on which domain is being named:
@@ -571,6 +639,15 @@ func (s *Scanner) Subject(ctx context.Context, a mechanics.Asset) (*mechanics.Su
 	}()
 
 	wg.Wait()
+
+	sub.SACAddress = sacAddr
+	sub.SACAdmin = sacAdmin
+	sub.SACAdminErr = sacAdminErr
+	sub.SACAdminSkipped = sacAdminSkipped
+	sub.SACAdminURL = sacAdminURL
+	sub.SACAdminAttemptedAt = sacAdminAttemptedAt
+	sub.SACAdminFetchedAt = sacAdminFetchedAt
+	sub.SACAdminLedger = sacAdminLedger
 
 	sub.ExpertAssetURL = expertAssetURL
 	sub.ExpertAsset = expertAssetVal

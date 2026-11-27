@@ -337,6 +337,10 @@ enum DataKey {
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u32)]
 pub enum Error {
+    // Declared in ascending numeric order, and each value is pinned by
+    // `error_code_values_are_abi` below. Error codes are part of the ABI, so
+    // renumbering any variant is a breaking change; declaring them in order
+    // makes the next addition harder to misnumber (issue #354).
     /// `init` was called on an already-initialized contract.
     AlreadyInitialized = 1,
     /// The contract has no admin yet.
@@ -347,13 +351,13 @@ pub enum Error {
     /// set but severity is below `SEVERITY_HIGH`. Rejected at write time so a
     /// gate can rely on the invariant at read time.
     InconsistentAttestation = 4,
-    /// No pending admin transfer exists to accept.
-    NoPendingAdmin = 6,
     /// `revoke` was called for an asset with no attestation in storage.
     /// Returned rather than treated as a no-op so a revocation aimed at the
     /// wrong address fails loudly instead of reporting success while the
     /// attestation it was meant to withdraw still stands.
     NotAttested = 5,
+    /// No pending admin transfer exists to accept.
+    NoPendingAdmin = 6,
     /// `attest_many` was given more than [`MAX_BATCH_SIZE`] attestations.
     /// Rejected rather than truncated: silently dropping the tail would report
     /// success for assets that were never written, and the off-chain pipeline

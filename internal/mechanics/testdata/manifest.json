@@ -32,7 +32,9 @@
     {"fixture": "synthetic-flag-disagreement", "purpose": "Exercise disagreement between Horizon asset and account issuer flags."},
     {"fixture": "synthetic-reputation-outage", "purpose": "Exercise a constructed StellarExpert reputation outage."},
     {"fixture": "synthetic-impossible-asset-record", "purpose": "Exercise CAP-0035 clawback without revocable on the asset copy."},
-    {"fixture": "synthetic-impossible-account-record", "purpose": "Exercise CAP-0035 clawback without revocable on the account copy."}
+    {"fixture": "synthetic-impossible-account-record", "purpose": "Exercise CAP-0035 clawback without revocable on the account copy."},
+    {"fixture": "synthetic-sac-admin-moved", "purpose": "Exercise a SAC admin that has moved off the issuer (#356): the capability finding must state it as evidence without changing severity."},
+    {"fixture": "synthetic-sac-admin-issuer", "purpose": "The counterpart where the SAC admin is still the issuer (#356): the capability finding must add no claim and no evidence."}
   ],
   "subjects": [
     {
@@ -298,6 +300,44 @@
       "escalated": false,
       "accountability": "unknown",
       "mechanics": []
+    },
+    {
+      "fixture": "zzz-signer-locked",
+      "asset": "ZZZXLM-GA2TD277OP77MSXVKN4JNJRJQBHXCQL5X3JJMPQ2CDZF462746FVWXZ4",
+      "label": "legitimate",
+      "base_severity": "clear",
+      "severity": "clear",
+      "escalated": false,
+      "accountability": "verified",
+      "mechanics": [],
+      "capture_date": "2026-11-23",
+      "notes": "Live signer-locked issuer (#359): master key weight 0, no other signer, thresholds 1/1/1, auth_immutable unset. The mutability finding must report locked-by-signers without setting the auth_immutable bit or moving severity.",
+      "source_urls": [
+        "https://horizon.stellar.org/assets?asset_code=ZZZXLM&asset_issuer=GA2TD277OP77MSXVKN4JNJRJQBHXCQL5X3JJMPQ2CDZF462746FVWXZ4",
+        "https://horizon.stellar.org/accounts/GA2TD277OP77MSXVKN4JNJRJQBHXCQL5X3JJMPQ2CDZF462746FVWXZ4",
+        "https://zzztokens.netlify.app/.well-known/stellar.toml",
+        "https://api.stellar.expert/explorer/directory/blocked-domains/zzztokens.netlify.app"
+      ]
+    },
+    {
+      "fixture": "usdc-signers-hold-power",
+      "asset": "USDC-GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+      "label": "legitimate",
+      "base_severity": "medium",
+      "severity": "medium",
+      "escalated": false,
+      "accountability": "unverified",
+      "mechanics": ["auth_revocable", "domain_unverified"],
+      "capture_date": "2026-11-23",
+      "notes": "Counterpart to zzz-signer-locked (#359): master key weight 0 but four weight-1 signers and a medium threshold of 2, so the account can still authorize operations and is not locked by signers.",
+      "source_urls": [
+        "https://horizon.stellar.org/assets?asset_code=USDC&asset_issuer=GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+        "https://horizon.stellar.org/accounts/GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+        "https://circle.com/.well-known/stellar.toml",
+        "https://api.stellar.expert/explorer/directory/blocked-domains/circle.com",
+        "https://api.stellar.expert/explorer/directory/GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+        "https://api.stellar.expert/explorer/public/asset/USDC-GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+      ]
     }
   ]
 }

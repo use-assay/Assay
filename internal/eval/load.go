@@ -127,6 +127,28 @@ func LoadSubject(fixturesDir, dir string) (*mechanics.Subject, error) {
 		s.BlockedErr = msg
 	}
 
+	// The SAC admin (#356) has the same three expressible states. A payload file
+	// means it was read; there is no error-marker form because a fixture that
+	// wants the unread case simply omits the file, and the live scanner records
+	// the RPC failure in Subject.SACAdminErr.
+	if _, err := os.Stat(filepath.Join(base, "sac-admin.json")); err == nil {
+		var a struct {
+			Admin  string `json:"admin"`
+			SAC    string `json:"sac"`
+			URL    string `json:"url"`
+			Ledger int64  `json:"ledger"`
+		}
+		if err := readJSON(filepath.Join(base, "sac-admin.json"), &a); err != nil {
+			return nil, err
+		}
+		s.SACAdmin = a.Admin
+		s.SACAddress = a.SAC
+		s.SACAdminURL = a.URL
+		s.SACAdminLedger = a.Ledger
+		s.SACAdminAttemptedAt = fixtureTime
+		s.SACAdminFetchedAt = fixtureTime
+	}
+
 	// StellarExpert's asset metadata follows the same three-state format as
 	// the other reputation sources: a payload file means the endpoint
 	// answered, an error marker means the fetch was consulted and failed, and

@@ -196,6 +196,35 @@ func (c CapabilityCheck) Run(_ context.Context, s *Subject) (Finding, error) {
 	// MutabilityCheck reports it as its own finding, so that a reader gets the
 	// durability of this verdict without this reasoning having to carry a
 	// conditional it cannot score.
+
+	// The SAC admin is reported here, as evidence, only when it has moved off
+	// the issuer (#356). Attaching a statement to every report would change the
+	// evidence_hash of every attestation whose SAC admin still is the issuer,
+	// which is the normal case — the same reason the second copy of the flags is
+	// cited only on disagreement. It is deliberately not a severity input: the
+	// issuer flags remain the capability axis (see docs/severity-model.md), and
+	// clawback through the SAC still requires auth_clawback_enabled. What the
+	// moved admin changes is who can exercise the power, not whether it exists.
+	if s.SACAdmin != "" && s.SACAdmin != s.Asset.Issuer {
+		_, _ = fmt.Fprintf(&b, " The asset's Stellar Asset Contract (%s) is "+
+			"administered by %s, not by the issuer %s. The SAC admin defaults to the "+
+			"issuer when the contract is first enabled and can be moved with set_admin "+
+			"(CAP-46-06), so the issuer flags above no longer describe who can mint, "+
+			"claw back or set_authorized through the SAC: the current admin can, subject "+
+			"to the classic asset's auth_clawback_enabled and auth_revocable flags. If "+
+			"the admin is a contract address, its own logic decides when those powers "+
+			"are used and this scanner cannot inspect it. This is evidence only; it "+
+			"does not change severity.", s.SACAddress, s.SACAdmin, s.Asset.Issuer)
+		f.Evidence = append(f.Evidence, Evidence{
+			Source:         "soroban-rpc/sac-admin",
+			URL:            s.SACAdminURL,
+			Claim:          "SAC admin: " + s.SACAdmin + " (issuer " + s.Asset.Issuer + ")",
+			RetrievedAt:    NewCanonicalTime(s.SACAdminFetchedAt),
+			LatestLedger:   s.SACAdminLedger,
+			LedgerSequence: s.SACAdminLedger,
+		})
+	}
+
 	f.Reasoning = b.String()
 
 	return f, nil

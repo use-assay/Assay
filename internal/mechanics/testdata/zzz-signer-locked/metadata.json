@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "subject": "zzz-signer-locked",
+  "why": "a live issuer whose account is locked by its signers: master key weight 0, no other signer, medium threshold 1, and auth_immutable UNSET. The mutability finding must report the fourth state, locked-by-signers, because the flag set can never change even though the AUTH_IMMUTABLE flag is not set. Base severity stays clear (#359).",
+  "files": [
+    {"file": "asset.json", "url": "https://horizon.stellar.org/assets?asset_code=ZZZXLM&asset_issuer=GA2TD277OP77MSXVKN4JNJRJQBHXCQL5X3JJMPQ2CDZF462746FVWXZ4", "captured": "2026-11-23"},
+    {"file": "account.json", "url": "https://horizon.stellar.org/accounts/GA2TD277OP77MSXVKN4JNJRJQBHXCQL5X3JJMPQ2CDZF462746FVWXZ4", "captured": "2026-11-23"},
+    {"file": "stellar.toml", "url": "https://zzztokens.netlify.app/.well-known/stellar.toml", "captured": "2026-11-23"},
+    {"file": "blocked.json", "url": "https://api.stellar.expert/explorer/directory/blocked-domains/zzztokens.netlify.app", "captured": "2026-11-23"}
+  ],
+  "expected": {
+    "state": "valid",
+    "base": "clear",
+    "severity": "clear",
+    "escalated": false,
+    "undetermined": false,
+    "accountability": "verified",
+    "checks": {
+      "capability": {"severity": "clear"},
+      "mutability": {"severity": "clear"},
+      "sep1-domain": {"severity": "clear"},
+      "reputation": {"severity": "clear", "escalation": true}
+    }
+  }
+}
