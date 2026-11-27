@@ -23,6 +23,9 @@ import (
 // DefaultURL is the public Horizon instance for pubnet.
 const DefaultURL = "https://horizon.stellar.org"
 
+// DefaultTestnetURL is the public Horizon instance for testnet.
+const DefaultTestnetURL = "https://horizon-testnet.stellar.org"
+
 // ErrNotFound reports that Horizon has no record of the asset or account.
 var ErrNotFound = errors.New("horizon: not found")
 
@@ -90,7 +93,13 @@ func NetworkFor(baseURL string) (Network, error) {
 // URL, so it is the one component positioned to answer; see NetworkFor for
 // why an unknown host is an error rather than a default.
 func (c *Client) Network() (Network, error) {
-	return NetworkFor(c.BaseURL)
+	var baseURL string
+	if len(c.BaseURLs) > 0 {
+		baseURL = c.BaseURLs[0]
+	} else {
+		baseURL = c.BaseURL
+	}
+	return NetworkFor(baseURL)
 }
 
 // Version is the tool version that every outbound client reports in its
@@ -243,6 +252,10 @@ type TrustlineBalance struct {
 	// IsAuthorized reports whether the issuer has authorized this trustline
 	// to transact (send and receive). An unauthorized trustline is frozen.
 	IsAuthorized bool `json:"is_authorized"`
+	// IsAuthorizedToMaintainLiabilities reports a partial freeze state
+	// (CAP-0018): the trustline cannot send or receive but existing open offers
+	// remain active. This is a SetTrustLineFlagsOp issued by the issuer.
+	IsAuthorizedToMaintainLiabilities bool `json:"is_authorized_to_maintain_liabilities"`
 	// IsClawbackEnabled reports whether the issuer's clawback power applies
 	// to this specific trustline. Under CAP-0035 this flag is fixed when the
 	// trustline is created: a holder who opened before the issuer set
@@ -254,7 +267,17 @@ type TrustlineBalance struct {
 
 // Client reads from a Horizon instance.
 type Client struct {
-	BaseURL   string
+	// BaseURL is the primary Horizon base URL. For backward compatibility,
+	// if BaseURLs is empty, BaseURL is used as the single endpoint.
+	BaseURL string
+	// BaseURLs is an ordered list of Horizon base URLs to try in order.
+	// If BaseURLs is non-empty, BaseURL is ignored and the list is used;
+	// the first URL in the list is also the default for evidence URL
+	// purposes when no other URL is available.
+	BaseURLs []string
+	// LastURL is the last URL that successfully answered a request, for
+	// evidence attribution. It is updated after each successful fetch.
+	LastURL   string
 	HTTP      *http.Client
 	UserAgent string
 }
@@ -266,6 +289,26 @@ func New(baseURL string) *Client {
 	}
 	return &Client{
 		BaseURL:   baseURL,
+		HTTP:      &http.Client{Timeout: 15 * time.Second},
+		UserAgent: defaultUserAgent,
+	}
+}
+
+// NewWithBaseURLs returns a Client configured with an ordered list of Horizon
+// base URLs for failover. BaseURLs are tried in order; the first one is also
+// used as the default for evidence URL purposes.
+func NewWithBaseURLs(baseURLs []string) *Client {
+	urls := make([]string, 0, len(baseURLs))
+	for _, u := range baseURLs {
+		if u = strings.TrimSpace(u); u != "" {
+			urls = append(urls, u)
+		}
+	}
+	if len(urls) == 0 {
+		return New("")
+	}
+	return &Client{
+		BaseURLs:  urls,
 		HTTP:      &http.Client{Timeout: 15 * time.Second},
 		UserAgent: defaultUserAgent,
 	}
@@ -395,75 +438,131 @@ func (c *Client) LatestLedger(ctx context.Context) (int64, error) {
 		HistoryLatestLedger int64 `json:"history_latest_ledger"`
 		CoreLatestLedger    int64 `json:"core_latest_ledger"`
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/", nil)
-	if err != nil {
-		return 0, fmt.Errorf("horizon: build root request: %w", err)
+	// Try each URL in BaseURLs, falling back to BaseURL.
+	var urls []string
+	if len(c.BaseURLs) > 0 {
+		urls = c.BaseURLs
+	} else {
+		urls = []string{c.BaseURL}
 	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", c.UserAgent)
+	for i, url := range urls {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url+"/", nil)
+		if err != nil {
+			if i+1 < len(urls) {
+				continue
+			}
+			return 0, fmt.Errorf("horizon: build root request: %w", err)
+		}
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("User-Agent", c.UserAgent)
 
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return 0, fmt.Errorf("horizon: get /: %w", err)
+		resp, err := c.HTTP.Do(req)
+		if err != nil {
+			if i+1 < len(urls) {
+				continue
+			}
+			return 0, fmt.Errorf("horizon: get /: %w", err)
+		}
+		defer resp.Body.Close() // nolint:errcheck
+		if resp.StatusCode != http.StatusOK {
+			if i+1 < len(urls) {
+				continue
+			}
+			return 0, fmt.Errorf("horizon: get /: status %d", resp.StatusCode)
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&root); err != nil {
+			if i+1 < len(urls) {
+				continue
+			}
+			return 0, fmt.Errorf("horizon: decode /: %w", err)
+		}
+		if root.HistoryLatestLedger > 0 {
+			return root.HistoryLatestLedger, nil
+		}
+		return root.CoreLatestLedger, nil
 	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("horizon: get /: status %d", resp.StatusCode)
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&root); err != nil {
-		return 0, fmt.Errorf("horizon: decode /: %w", err)
-	}
-	if root.HistoryLatestLedger > 0 {
-		return root.HistoryLatestLedger, nil
-	}
-	return root.CoreLatestLedger, nil
+	// Should not reach here, but just in case.
+	return 0, fmt.Errorf("horizon: get /: no URL answered")
 }
 
+// getWithLedger fetches from Horizon, trying each URL in BaseURLs in order.
+// On 404 it returns ErrNotFound immediately (404 is a valid answer, not an outage).
+// On transport errors or 5xx it fails over to the next URL.
+// On 200 it decodes the response and returns the ledger sequence.
 func (c *Client) getWithLedger(ctx context.Context, path string, out any) (int64, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+path, nil)
-	if err != nil {
-		return 0, fmt.Errorf("horizon: build request %s: %w", path, err)
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", c.UserAgent)
-
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return 0, fmt.Errorf("horizon: get %s: %w", path, err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	clockskew.Record(req.Context(), "horizon", resp.Request.URL.String(),
-		resp.Header.Get("Date"), time.Now().UTC())
-
-	if resp.StatusCode == http.StatusNotFound {
-		return 0, fmt.Errorf("%w: %s", ErrNotFound, path)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("horizon: get %s: status %d", path, resp.StatusCode)
+	// Collect URLs to try: use BaseURLs if set, otherwise fall back to BaseURL.
+	var urls []string
+	if len(c.BaseURLs) > 0 {
+		urls = c.BaseURLs
+	} else {
+		urls = []string{c.BaseURL}
 	}
 
-	ledgerSeq := parseLatestLedger(resp.Header)
-	if ledgerSeq == 0 && path != "/" && path != "" {
-		if rootSeq, err := c.LatestLedger(ctx); err == nil && rootSeq > 0 {
-			ledgerSeq = rootSeq
+	for i, url := range urls {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url+path, nil)
+		if err != nil {
+			if i+1 < len(urls) {
+				continue
+			}
+			return 0, fmt.Errorf("horizon: build request %s on %s: %w", path, url, err)
 		}
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("User-Agent", c.UserAgent)
+
+		resp, err := c.HTTP.Do(req)
+		if err != nil {
+			// Transport error: fail over to next URL if available, otherwise return.
+			if i+1 < len(urls) {
+				continue
+			}
+			return 0, fmt.Errorf("horizon: get %s on %s: %w", path, url, err)
+		}
+		defer resp.Body.Close() // nolint:errcheck
+
+		clockskew.Record(req.Context(), "horizon", resp.Request.URL.String(),
+			resp.Header.Get("Date"), time.Now().UTC())
+
+		if resp.StatusCode == http.StatusNotFound {
+			// 404 is a valid answer — the asset/account is not on this endpoint.
+			// Do not fail over; return ErrNotFound immediately.
+			return 0, fmt.Errorf("%w: %s", ErrNotFound, path)
+		}
+		if resp.StatusCode != http.StatusOK {
+			// 5xx or other error: fail over to next URL if available.
+			if i+1 < len(urls) {
+				continue
+			}
+			return 0, fmt.Errorf("horizon: get %s on %s: status %d", path, url, resp.StatusCode)
+		}
+
+		ledgerSeq := parseLatestLedger(resp.Header)
+		if ledgerSeq == 0 && path != "/" && path != "" {
+			if rootSeq, err := c.LatestLedger(ctx); err == nil && rootSeq > 0 {
+				ledgerSeq = rootSeq
+			}
+		}
+
+		dec := json.NewDecoder(resp.Body)
+		if err := dec.Decode(out); err != nil {
+			return 0, fmt.Errorf("horizon: decode %s on %s: %w", path, url, err)
+		}
+		// Decode accepts a valid first value and silently ignores anything after
+		// it. A response is either one JSON document or a decode error, never a
+		// record extracted from a larger or malformed payload.
+		var extra json.RawMessage
+		if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+			if err == nil {
+				err = errors.New("unexpected data after top-level value")
+			}
+			return 0, fmt.Errorf("horizon: decode %s on %s: trailing data: %w", path, url, err)
+		}
+		// Record the URL that answered for evidence attribution.
+		c.LastURL = url
+		return ledgerSeq, nil
 	}
 
-	dec := json.NewDecoder(resp.Body)
-	if err := dec.Decode(out); err != nil {
-		return 0, fmt.Errorf("horizon: decode %s: %w", path, err)
-	}
-	// Decode accepts a valid first value and silently ignores anything after
-	// it. A response is either one JSON document or a decode error, never a
-	// record extracted from a larger or malformed payload.
-	var extra json.RawMessage
-	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
-		if err == nil {
-			err = errors.New("unexpected data after top-level value")
-		}
-		return 0, fmt.Errorf("horizon: decode %s: trailing data: %w", path, err)
-	}
-	return ledgerSeq, nil
+	// All URLs exhausted without a successful response.
+	return 0, fmt.Errorf("horizon: get %s: all URLs exhausted", path)
 }
 
 func (c *Client) get(ctx context.Context, path string, out any) error {

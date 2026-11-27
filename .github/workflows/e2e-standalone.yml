@@ -30,9 +30,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
           cache: true
@@ -58,14 +58,17 @@ jobs:
         working-directory: assay-contracts
         run: rustup toolchain install
 
-      # Use protocol 28 for the Soroban SDK 28 contracts and keep Quickstart
-      # pinned so its Core/RPC versions cannot drift independently.
+      # Soroban SDK 29 emits protocol-29 contracts, which a protocol-28 host
+      # rejects during deploy simulation (WasmVm, InvalidInput). Run the local
+      # ledger at protocol 29 and keep Quickstart pinned (action commit and
+      # versioned image tag) so its Core/RPC versions cannot drift
+      # independently.
       - name: start local Stellar network
-        uses: stellar/quickstart@main
+        uses: stellar/quickstart@a1ebfcf341d036d8b71559d5d3eec3a4f546193c # main 2026-11-20 (no release tags)
         with:
-          tag: v676-b1505.1-latest
+          tag: v695-b1655.1-latest
           network: local
-          protocol_version: "28"
+          protocol_version: "29"
           enable: core,rpc,horizon
           enable_logs: "false"
 

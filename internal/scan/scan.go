@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"regexp"
 	"strings"
@@ -186,6 +187,14 @@ type Scanner struct {
 	// Lists fetches the configured SEP-0042 Stellar Asset Lists.
 	Lists *assetlist.Client
 
+	// RPC is the HTTP client used for Stellar RPC when a contract address
+	// (C…) input is resolved to its classic asset. Nil means a default client.
+	RPC *http.Client
+	// RPCURL is the Stellar RPC endpoint contract inputs are resolved
+	// through. Empty means ASSAY_RPC_URL, then the public endpoint for the
+	// scanned network (see DefaultRPCFor).
+	RPCURL string
+
 	// FetchTimeout bounds any single source fetch. Zero means DefaultFetchTimeout.
 	FetchTimeout time.Duration
 
@@ -304,6 +313,7 @@ func NewWithOptions(opts Options) *Scanner {
 		Expert:  stellarexpert.NewWithOptions(os.Getenv("ASSAY_STELLAREXPERT_URL"), expertOptions(opts)),
 		Engine:  mechanics.NewEngine(),
 		Lists:   assetlist.NewWithOptions(assetlist.Options{TTL: opts.AssetListTTL}),
+		RPC:     &http.Client{Timeout: 15 * time.Second},
 		Network: horizon.PublicNet,
 	}
 }
@@ -318,6 +328,16 @@ func expertOptions(opts Options) stellarexpert.Options {
 		o.BlocklistTTL = 0
 	}
 	return o
+}
+
+// sep42Network converts a Stellar network passphrase to the short name used in
+// SEP-0042 asset list JSON ("public" or "testnet"). Any unknown passphrase maps
+// to "public" as the safer default.
+func sep42Network(n horizon.Network) string {
+	if n == horizon.TestNet {
+		return "testnet"
+	}
+	return "public"
 }
 
 // resolveNetwork decides which network a scan is on.
@@ -374,7 +394,12 @@ func (s *Scanner) Subject(ctx context.Context, a mechanics.Asset) (*mechanics.Su
 	if err != nil {
 		return nil, err
 	}
-	sub := &mechanics.Subject{Asset: a, ScannedAt: s.now(), Network: network}
+	sub := &mechanics.Subject{
+		Asset:      a,
+		ScannedAt:  s.now(),
+		Network:    network,
+		HorizonURL: s.Horizon.BaseURL,
+	}
 	timeout := s.fetchTimeout()
 
 	statCtx, cancelStat := context.WithTimeout(ctx, timeout)
@@ -397,12 +422,21 @@ func (s *Scanner) Subject(ctx context.Context, a mechanics.Asset) (*mechanics.Su
 	issuer, err := s.Horizon.Account(acctCtx, a.Issuer)
 	cancelAcct()
 	if err != nil {
-		return nil, fmt.Errorf("scan: fetch issuer account: %w", err)
-	}
-	sub.Issuer = issuer
-	sub.IssuerFetchedAt = s.now()
-	if issuer != nil {
-		sub.IssuerLedger = issuer.LatestLedger
+		if errors.Is(err, horizon.ErrNotFound) {
+			// The issuer account has been merged: the /accounts endpoint returned
+			// 404. The asset record may still exist. Mark the subject so the
+			// capability check can report undetermined rather than treating the
+			// absence as a clean single-source read.
+			sub.IssuerMerged = true
+		} else {
+			return nil, fmt.Errorf("scan: fetch issuer account: %w", err)
+		}
+	} else {
+		sub.Issuer = issuer
+		sub.IssuerFetchedAt = s.now()
+		if issuer != nil {
+			sub.IssuerLedger = issuer.LatestLedger
+		}
 	}
 
 	var (
@@ -518,7 +552,7 @@ func (s *Scanner) Subject(ctx context.Context, a mechanics.Asset) (*mechanics.Su
 	// unlike the domain-keyed lookups above, which need a home_domain. It runs
 	// with the rest of the concurrent group so that a slow or dead
 	// StellarExpert cannot serialise another fetch's timeout onto the scan.
-	expertAssetURL = s.Expert.AssetURL(a.Code, a.Issuer)
+	expertAssetURL = s.Expert.AssetURLForNetwork(a.Code, a.Issuer, string(network))
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -611,6 +645,14 @@ func (s *Scanner) Subject(ctx context.Context, a mechanics.Asset) (*mechanics.Su
 				Network:     list.Network,
 				FetchedAt:   list.FetchedAt,
 				AttemptedAt: attempted,
+			}
+			// A list whose declared network differs from the scan's is evidence
+			// about a different ledger: a pubnet listing must not count as
+			// evidence about a testnet asset and vice versa (#593).
+			if list.Network != "" && list.Network != sep42Network(network) {
+				sig.Err = "list network " + list.Network + " does not match scan network " + sep42Network(network) + "; not applicable"
+				sub.AssetLists = append(sub.AssetLists, sig)
+				continue
 			}
 			// Match on the classic pair, and on the asset's contract address as
 			// a second key: a list may publish either, and Horizon reports the

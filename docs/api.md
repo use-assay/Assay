@@ -35,6 +35,30 @@ services. The server accepts it only when it is **1–128 bytes of
 `[A-Za-z0-9._:-]`**; an empty, over-long, or out-of-charset value is ignored and
 a fresh identifier (16 random bytes, hex-encoded) is generated instead.
 
+## Security Headers
+
+Every response emitted by the server carries baseline security headers:
+- `X-Content-Type-Options: nosniff`: instructs browsers to adhere strictly to the MIME type declared in the `Content-Type` header, preventing MIME-type sniffing.
+- `Referrer-Policy: no-referrer`: prevents emitting the `Referer` header, ensuring URLs and queries are never leaked to external sites.
+- `Content-Security-Policy: frame-ancestors 'none'`: forbids framing by external sites, protecting API endpoints against clickjacking.
+
+### UI Content-Security-Policy
+
+The embedded verdict UI (`GET /`) is served with a strict `Content-Security-Policy` restricting resource loading and execution to the minimum necessary for the single-page application:
+
+```http
+Content-Security-Policy: default-src 'none'; script-src 'sha256-...'; style-src 'sha256-...'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'
+```
+
+- `default-src 'none'`: blocks all resource types by default.
+- `script-src 'sha256-...'`: permits execution of only the single embedded inline script matching its exact SHA-256 hash. Remote scripts, unhashed inline scripts, and dynamic code evaluation (`eval`) are denied.
+- `style-src 'sha256-...'`: permits application of only the single embedded inline stylesheet matching its exact SHA-256 hash.
+- `connect-src 'self'`: restricts `fetch` requests strictly to same-origin endpoints.
+- `img-src 'self'`: permits images only from the same origin.
+- `base-uri 'none'`: prevents DOM injection of `<base>` tags to redirect relative URLs.
+- `form-action 'self'`: restricts form submissions to the same origin.
+- `frame-ancestors 'none'`: prevents framing and clickjacking overlays by hostile sites.
+
 ## Reverse Proxies and Rate Limiting
 
 In public deployments behind a reverse proxy (such as nginx, Caddy, or a cloud load balancer), `r.RemoteAddr` is the IP of the proxy peer. Without proxy awareness, all clients connecting through that proxy share a single rate-limiting bucket.
@@ -80,12 +104,12 @@ the message text.
 | Code | Meaning |
 | --- | --- |
 | `missing_param` | A required query parameter was not supplied. |
-| `invalid_asset` | The `asset` parameter is not a valid `CODE-ISSUER` pair. |
+| `invalid_asset` | The `asset` parameter is not a valid `CODE-ISSUER` pair or SAC contract address, or the contract's `name()` does not round-trip to it. |
 | `invalid_holder` | The `holder` or `account` parameter is neither a valid `G…` account nor a valid `M…` muxed account. |
 | `invalid_param` | Another parameter value is out of range or malformed. |
 | `asset_not_found` | The asset does not exist on the ledger. |
 | `account_not_found` | The account does not exist on the ledger. |
-| `upstream_unavailable` | A required upstream call (Horizon, StellarExpert) failed. |
+| `upstream_unavailable` | A required upstream call (Horizon, StellarExpert, Stellar RPC) failed. |
 | `rate_limited` | The client has exceeded a rate limit (exposure always; scan when configured); see `Retry-After`. |
 
 ## Conventions
@@ -132,15 +156,30 @@ records one observation into the history store (see
 
 Parameters:
 
-- `asset` (required): asset code and issuer, e.g. `USDC-GA5Z...`.
+- `asset` (required): asset code and issuer, e.g. `USDC-GA5Z...`, or a
+  contract address (`C...`). A contract input is resolved through Stellar RPC:
+  its `name()` must return `CODE:ISSUER`, and re-deriving that asset's SAC
+  address must reproduce the input — a contract that names another asset, or
+  is not a SAC, is rejected with `invalid_asset`.
 - `holder` (optional): a holder's `G...` account or `M...` muxed account.
   Adds the holder-trustline finding — whether the issuer can freeze or
   confiscate *this holder's* balance — to the report.
+- `max_age_secs` (optional): the oldest a reused StellarExpert reputation
+  answer (the curated directory and the domain blocklist) may be, in seconds.
+  A cached answer that old or older is re-fetched instead of reused, so
+  `max_age_secs=0` means "do not reuse" and forces a fresh fetch of both. It
+  only tightens the server's cache lifetime and never extends it; omit it to
+  keep the server default. Ledger reads are never cached and are unaffected.
+  `max_age` is accepted as an alias, and `max_age_secs` wins if both are sent.
+  A value that is not a non-negative integer is a `400` with code
+  `invalid_param`. See [caching.md](caching.md).
 
-The parameter accepts the same three spellings as the CLI — `CODE-ISSUER`,
-`CODE:ISSUER`, and a stellar.expert asset URL (percent-encoded) — and every
-response names the asset in its canonical `CODE-ISSUER` form, so evidence and
-preimage bytes do not depend on which form was sent. See
+The parameter accepts the same spellings as the CLI — `CODE-ISSUER`,
+`CODE:ISSUER`, a stellar.expert asset URL (percent-encoded), and a `C...` SAC
+contract address — and every response names the asset in its canonical
+`CODE-ISSUER` form, so evidence and preimage bytes do not depend on which form
+was sent. A contract address is resolved through Stellar RPC, configured with
+`ASSAY_RPC_URL` or the public endpoint for the scanned network. See
 [cli.md](cli.md#asset-identifiers).
 
 Response headers:
@@ -384,6 +423,32 @@ Status codes:
   request runs a full scan per asset.
 - `502 Bad Gateway`: the account's trustline list could not be fetched.
 
+### `GET /api/v1/attestation?asset=CODE-ISSUER`
+
+Scans the asset and returns the exact arguments of an on-chain `attest()`
+call, or says why the scan cannot be attested. The response schema is
+[`Attestation`](../openapi.yaml) in `openapi.yaml`.
+
+Parameters:
+
+- `asset` (required): asset code and issuer, in any of the spellings `scan`
+  accepts.
+
+A `200` response always carries `attestable`. When it is `true`, `severity`,
+`severity_name`, `flags`, `mechanics`, `checks`, `network`, `evidence_hash`,
+`scanned_at` and `preimage` are the attest arguments and the canonical bytes
+`evidence_hash` commits to. When it is `false`, `reason` and `error_kind`
+(`undetermined`, `unevaluated`, `stale`, `inconsistent`, `partial_check_set`
+or `scan_failed`) explain the refusal; an unattestable scan is not an HTTP
+error.
+
+Status codes:
+
+- `400 Bad Request`: missing or invalid `asset` (`missing_param`,
+  `invalid_asset`).
+- `404 Not Found`: asset not found on the ledger.
+- `502 Bad Gateway`: the scan could not reach its upstream sources.
+
 ### `GET /metrics`
 
 Scan outcome and per-source failure counters accumulated since process start:
@@ -392,9 +457,18 @@ Scan outcome and per-source failure counters accumulated since process start:
 did not answer). The counters are monotonically increasing; a scraper derives
 rates from consecutive reads.
 
+By default, the endpoint returns JSON (`application/json; charset=utf-8`).
+Clients may request the Prometheus text exposition format (version 0.0.4) by
+sending `Accept: text/plain; version=0.0.4` or the query parameter `?format=prometheus`.
+In Prometheus format (`text/plain; version=0.0.4; charset=utf-8`), counters are
+emitted as:
+
+- `assay_scan_outcomes_total{class="..."}`: scan results per outcome class (`complete`, `undetermined`, `not_found`, `upstream_failure`).
+- `assay_source_failures_total{source="..."}`: scans whose report recorded that source as not having answered.
+
 Status codes:
 
-- `200 OK`: a snapshot of the counters. Both objects are present and may be
+- `200 OK`: a snapshot of the counters. Both metric families/objects are present and may be
   empty on a fresh process.
 
 ### `GET /healthz`

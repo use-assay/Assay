@@ -44,6 +44,7 @@ func TestRefusesModesThatAreNotImplemented(t *testing.T) {
 		"signing (no --dry-run)": {[]string{"--config", cfg, "--once"}, "signing is out of scope"},
 		"scheduled dry-run":      {[]string{"--config", cfg, "--dry-run"}, "pass --once"},
 		"watch with dry-run":     {[]string{"--config", cfg, "--watch", "--dry-run"}, "cannot be combined"},
+		"state without watch":    {[]string{"--config", cfg, "--dry-run", "--once", "--state", "s.json"}, "only applies to --watch"},
 		"positional arguments":   {[]string{"--config", cfg, "--dry-run", "--once", "extra"}, "unexpected arguments"},
 		"missing config file":    {[]string{"--config", "does-not-exist.json", "--dry-run", "--once"}, "invalid config"},
 	} {

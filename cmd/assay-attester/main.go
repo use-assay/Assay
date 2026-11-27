@@ -3,6 +3,7 @@
 //
 //	assay-attester --config PATH --dry-run --once   scan, derive, print; never sign
 //	assay-attester --config PATH --watch            report issuer flag changes as they land
+//	assay-attester --config PATH --watch --state F  ... and resume across restarts from F
 //	assay-attester diff BASE HEAD                   compare two dry-run outputs (Markdown)
 //
 // There is no signing mode. Running without --dry-run or --watch is refused:
@@ -69,11 +70,12 @@ func run(ctx context.Context, args []string, d deps) int {
 	dryRun := fs.Bool("dry-run", false, "scan, derive and print per asset; never sign")
 	once := fs.Bool("once", false, "one pass, then exit (the unit a scheduler invokes)")
 	watch := fs.Bool("watch", false, "watch attested issuers and report authorization-flag changes (read-only)")
+	statePath := fs.String("state", "", "with --watch: file persisting each issuer's cursor and flags, so a restart replays what it missed")
 	if err := fs.Parse(args); err != nil {
 		return attester.ExitOperational
 	}
 
-	if err := checkModes(fs.NArg(), *configPath, *dryRun, *once, *watch); err != nil {
+	if err := checkModes(fs.NArg(), *configPath, *dryRun, *once, *watch, *statePath); err != nil {
 		_, _ = fmt.Fprintln(d.stderr, "assay-attester:", err)
 		return attester.ExitOperational
 	}
@@ -85,17 +87,19 @@ func run(ctx context.Context, args []string, d deps) int {
 	}
 
 	if *watch {
-		return runWatch(ctx, cfg, d)
+		return runWatch(ctx, cfg, *statePath, d)
 	}
 	return runDryRun(ctx, cfg, d)
 }
 
-func checkModes(nargs int, configPath string, dryRun, once, watch bool) error {
+func checkModes(nargs int, configPath string, dryRun, once, watch bool, statePath string) error {
 	switch {
 	case nargs != 0:
 		return fmt.Errorf("%w: unexpected arguments", errUsage)
 	case configPath == "":
 		return fmt.Errorf("%w: --config is required", errUsage)
+	case statePath != "" && !watch:
+		return fmt.Errorf("%w: --state only applies to --watch", errUsage)
 	case watch && (dryRun || once):
 		return fmt.Errorf("%w: --watch runs on its own; it cannot be combined with --dry-run or --once", errUsage)
 	case watch:
@@ -126,18 +130,21 @@ func runDryRun(ctx context.Context, cfg *attester.Config, d deps) int {
 	return attester.ExitCode(results)
 }
 
-func runWatch(ctx context.Context, cfg *attester.Config, d deps) int {
+func runWatch(ctx context.Context, cfg *attester.Config, statePath string, d deps) int {
 	log := slog.New(slog.NewJSONHandler(d.stdout, nil))
 	baseURL := cfg.HorizonURL
 	if baseURL == "" {
 		baseURL = horizon.DefaultURL
 	}
 	w := attester.NewWatcher(cfg, d.horizon(baseURL))
+	if statePath != "" {
+		w.SetStatePath(statePath)
+	}
 	if err := w.Init(ctx); err != nil {
 		_, _ = fmt.Fprintln(d.stderr, "assay-attester:", err)
 		return attester.ExitOperational
 	}
-	log.Info("watching attested issuers", "horizon", baseURL, "interval", cfg.Interval().String(), "assets", len(cfg.Assets))
+	log.Info("watching attested issuers", "horizon", baseURL, "interval", cfg.Interval().String(), "assets", len(cfg.Assets), "state", statePath)
 
 	err := w.Run(ctx, cfg.Interval(),
 		func(t attester.FlagTransition) {

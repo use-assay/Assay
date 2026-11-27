@@ -115,3 +115,33 @@ func TestAddressRejectsBadInput(t *testing.T) {
 		}
 	}
 }
+
+// ContractIDBytes must invert the derivation: re-encoding the decoded ID
+// reproduces the recorded address for every deployed asset.
+func TestContractIDBytesRoundTrips(t *testing.T) {
+	for _, v := range testnetVectors {
+		id, err := ContractIDBytes(v.want)
+		if err != nil {
+			t.Fatalf("%s: %v", v.want, err)
+		}
+		if len(id) != 32 {
+			t.Fatalf("%s: got %d bytes, want 32", v.want, len(id))
+		}
+		if got := encodeStrkey(strkeyVersionContract, id); got != v.want {
+			t.Fatalf("round trip: got %s, want %s", got, v.want)
+		}
+	}
+}
+
+func TestContractIDBytesRejectsNonContract(t *testing.T) {
+	for _, s := range []string{
+		"",
+		"GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", // account, not contract
+		"CA2E53VHFZ6YSWQIEIPBXJQGT6VW3VKWWZO555XKRQXYJ63GEBJJGHY6", // bad checksum
+		"ca2e53vhfz6yswqieipbxjqgt6vw3vkwwzo555xkrqxyj63gebjjghy7", // lower case
+	} {
+		if _, err := ContractIDBytes(s); err == nil {
+			t.Errorf("ContractIDBytes(%q): want error", s)
+		}
+	}
+}

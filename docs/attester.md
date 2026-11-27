@@ -120,6 +120,35 @@ Two details follow [freshness.md](freshness.md):
 A failed poll is logged and retried from the same cursor on the next interval,
 so a Horizon blip skips nothing.
 
+### Resuming across restarts (`--state`)
+
+```sh
+go run ./cmd/assay-attester --config attested.json --watch --state watch-state.json
+```
+
+**Without `--state`, downtime is a blind spot.** Each start takes the current
+flags and the newest operation as its baseline. If an issuer sets and then
+clears clawback while the watcher is down, the restart sees flags that match
+the old ones and reports nothing. Trustlines opened in between keep clawback
+(CAP-0035), so the change matters even though it was reversed.
+
+With `--state PATH`, the watcher keeps each issuer's cursor and flags in a
+JSON file:
+
+- **Written atomically.** Each write goes to a synced temporary file in the
+  same directory, which is then renamed over `PATH`. A crash leaves the
+  previous state, never a truncated one. The baseline is written at startup,
+  and again after each poll once its transitions have been logged.
+- **Resumed on start.** An issuer with a checkpoint resumes from it, and the
+  first poll replays every operation since. Transitions made during downtime
+  are reported with their original operation, transaction and time. An
+  issuer added to the config since the last run starts from the current head.
+- **At least once.** A crash after a transition is logged but before the
+  checkpoint replays that transition on restart. It is never dropped.
+- **Refused, not reset, when unreadable.** A missing file starts fresh. A
+  corrupt file, or one with an unknown `version`, stops startup, because
+  starting over silently would reopen the blind spot.
+
 ### Cadence and Horizon load
 
 | | Default |
@@ -132,7 +161,8 @@ so a Horizon blip skips nothing.
 
 SDF's public Horizon allows 3 600 requests per hour per IP, so the default
 uses about 12% of it. Startup costs two more requests per issuer (newest
-operation, current flags). An interval shorter than about 10 s gains little,
+operation, current flags), or none for an issuer resumed from `--state`.
+An interval shorter than about 10 s gains little,
 because ledgers close every ~5 s and the public rate limit is per IP. The
 daily schedule in [freshness.md](freshness.md) remains the backstop; the
 watcher shortens the window between a flag change and someone knowing.

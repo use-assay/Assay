@@ -23,7 +23,7 @@ ledger-access library later without untangling judgment logic from HTTP.
 
 | Kind of I/O | Where it lives | Everything else |
 | --- | --- | --- |
-| Outbound HTTP for a scan | `internal/scan`, via the three leaf fetchers | Checks in `internal/mechanics` are pure |
+| Outbound HTTP for a scan | `internal/scan`, via the leaf fetchers and Stellar RPC | Checks in `internal/mechanics` are pure |
 | Outbound HTTP (raw) | `internal/horizon`, `internal/sep1`, `internal/stellarexpert` | Leaf packages; no internal dependencies |
 | Filesystem (observation log) | `internal/history` | `internal/temporal` stores nothing, by design |
 | Inbound HTTP (serving) | `internal/api` | The scanner it calls owns the outbound side |

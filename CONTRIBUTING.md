@@ -159,6 +159,13 @@ pull request checklist says. Dependency health is checked in CI as well:
   the job. Unmaintained and yanked-crate warnings are reported but do not fail;
   the current lockfile has one (`paste`, RUSTSEC-2024-0436), and it is visible
   in the audit output rather than suppressed with an ignore rule.
+- Every `uses:` in `.github/workflows/` is pinned to a full 40-hex commit SHA
+  with the version in a comment (`owner/repo@<sha> # vX.Y.Z`), never a tag or
+  branch, because those can move upstream. An action with no release tags is
+  pinned to a commit with its date in the comment. The `Workflow lint` CI job
+  runs `scripts/check-action-pins.sh` and a checksum-verified `actionlint` on
+  every pull request. Dependabot's `github-actions` updates keep the SHAs
+  current.
 
 Run the contract audit locally with the same input CI uses:
 

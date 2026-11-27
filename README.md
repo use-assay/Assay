@@ -78,6 +78,7 @@ Call `get_safety`, run the binary, consume the API.
 | [docs/freshness.md](docs/freshness.md) | How old an attestation may be: measured flag-change rates and window guidance per use class |
 | [docs/glossary.md](docs/glossary.md) | Every state Assay reports — severity, accountability, verdict state, `undetermined` — and the state each is most often confused with |
 | [docs/consumer-integration-research.md](docs/consumer-integration-research.md) | Which `get_safety` consumer has the strongest evidence for a reference integration, and why |
+| [docs/sep41-token-analysis.md](docs/sep41-token-analysis.md) | What can and cannot be concluded mechanically about a SEP-41 contract token's admin surface |
 
 ### For verifiers
 
@@ -116,6 +117,7 @@ Read or change the code, or review a design.
 | [docs/attestation-run.md](docs/attestation-run.md) | Every asset scanned, what each check returned, and what the run exposed about the scanner |
 | [docs/attestation-writer.md](docs/attestation-writer.md) | Design (not implemented): the attestation writer pipeline, answering the open questions in #8 |
 | [docs/multi-attestor.md](docs/multi-attestor.md) | Design (for review): approaches to multi-attestor writes, answering #88 |
+| [docs/automerge.md](docs/automerge.md) | The automerge bot: when it squash-merges automatically and how to fix a stalled PR |
 | [docs/testing.md](docs/testing.md) | Package-level testing guide: which test belongs where, and how CI runs them |
 | [docs/automerge.md](docs/automerge.md) | How the automerge bot evaluates and merges pull requests, and how to dry-run changes |
 | [docs/mutation-catalogue.md](docs/mutation-catalogue.md) | The mutation catalogue and baseline: which mutations were applied by hand, and what the tests caught |
@@ -138,6 +140,7 @@ Run the scanner and the registry.
 | [docs/reattestation.md](docs/reattestation.md) | Runbook: refreshing the attested corpus before attestations age out of the gate's window |
 | [docs/source-outage.md](docs/source-outage.md) | Runbook: what to do when a scan reports an upstream source failure |
 | [docs/reproducibility-mismatch.md](docs/reproducibility-mismatch.md) | Runbook: the reproducibility job reports a mismatch |
+| [docs/pubnet-readiness.md](docs/pubnet-readiness.md) | Every condition that must hold before a mainnet deployment, with its status and tracking issue |
 
 ### Translations
 
@@ -185,7 +188,9 @@ The gaps are not left implicit. [docs/threat-model.md](docs/threat-model.md)
 names the actors, states which attacks are defended (with the test that holds
 them), which are accepted risks, and which are out of scope — including the one
 that matters most, that a single compromised attester key can currently cause an
-admission.
+admission. [docs/pubnet-readiness.md](docs/pubnet-readiness.md) consolidates
+every condition that must hold before a mainnet deployment, with a status and
+tracking issue for each.
 
 ## License
 
