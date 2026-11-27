@@ -452,6 +452,25 @@ type AssetListSignal struct {
 	Err string
 }
 
+// SourceOutcome is one data source consulted during a scan: its name, the URL
+// that was requested, the outcome, and when it was attempted or answered.
+type SourceOutcome struct {
+	// Source is the stable identifier used elsewhere in the report
+	// (e.g. "horizon", "stellar.toml", "stellar.expert/directory").
+	Source string `json:"source"`
+	// URL is the endpoint that was consulted (or would have been, for skipped).
+	URL string `json:"url,omitempty"`
+	// Outcome is one of: "answered", "not_listed", "failed", "skipped".
+	//   answered   – the source returned data for this asset.
+	//   not_listed – the source answered but had no entry for the asset.
+	//   failed     – the fetch or parse failed; details are in Evidence.
+	//   skipped    – the source was not consulted (e.g. no home_domain).
+	Outcome string `json:"outcome"`
+	// RetrievedAt is when the source answered or when the attempt was made
+	// for a failed fetch. Zero for skipped sources.
+	RetrievedAt CanonicalTime `json:"retrieved_at,omitempty"`
+}
+
 // ReportSchemaVersion is the current value Report.SchemaVersion marshals as
 // (issue #44). Bump it on any breaking change to the report JSON shape; see
 // the compatibility rule on the field.
@@ -640,6 +659,19 @@ type Report struct {
 	// whether the hashed bytes name it. Serialized so a report document can
 	// carry the fact that it was produced under identity binding.
 	ScannerBound bool `json:"scanner_bound,omitempty"`
+
+	// Sources summarises each data source consulted during the scan: its URL,
+	// outcome and retrieval time. It is JSON-only and outside the evidence
+	// preimage (like RequestedURL and LatestLedger), so adding it does not
+	// change the hash of any existing report. Its purpose is to let a
+	// consumer answer "which source failed?" without parsing Evidence claims
+	// in English — the first debugging step docs/debugging-a-verdict.md
+	// currently asks the reader to perform by hand.
+	//
+	// Outcome values: "answered" (source returned data), "not_listed" (source
+	// answered but the asset was not found), "failed" (fetch or parse error),
+	// "skipped" (source was not consulted — e.g. blocklist needs home_domain).
+	Sources []SourceOutcome `json:"sources,omitempty"`
 
 	Mechanics     Mechanic                `json:"-"`
 	MechanicNames []string                `json:"mechanics"`
@@ -875,5 +907,147 @@ func (e *Engine) Run(ctx context.Context, s *Subject) (*Report, error) {
 		return rep.Findings[i].Severity > rep.Findings[j].Severity
 	})
 	sort.Strings(rep.CheckSet)
+	rep.Sources = sourcesFromSubject(s)
 	return rep, nil
+}
+
+// sourcesFromSubject derives the per-source outcome summary from a Subject.
+// It is called after all checks run and is JSON-only: its output is not part
+// of any evidence preimage.
+func sourcesFromSubject(s *Subject) []SourceOutcome {
+	var out []SourceOutcome
+
+	// Horizon — asset stat (URL not stored in Subject; see Evidence for the full endpoint)
+	statOutcome := "failed"
+	statAt := NewCanonicalTime(s.StatFetchedAt)
+	if s.Stat != nil {
+		statOutcome = "answered"
+	}
+	out = append(out, SourceOutcome{
+		Source:      "horizon",
+		Outcome:     statOutcome,
+		RetrievedAt: statAt,
+	})
+
+	// Horizon — issuer account
+	issuerOutcome := "failed"
+	issuerAt := NewCanonicalTime(s.IssuerFetchedAt)
+	if s.Issuer != nil {
+		issuerOutcome = "answered"
+	}
+	out = append(out, SourceOutcome{
+		Source:      "horizon/account",
+		Outcome:     issuerOutcome,
+		RetrievedAt: issuerAt,
+	})
+
+	// stellar.toml
+	tomlOutcome := "failed"
+	tomlAt := NewCanonicalTime(s.TomlAttemptedAt)
+	if s.TomlErr == "" && s.Toml != nil {
+		tomlOutcome = "answered"
+		if !s.Toml.FetchedAt.IsZero() {
+			tomlAt = NewCanonicalTime(s.Toml.FetchedAt)
+		}
+	}
+	out = append(out, SourceOutcome{
+		Source:      "stellar.toml",
+		URL:         s.TomlURL,
+		Outcome:     tomlOutcome,
+		RetrievedAt: tomlAt,
+	})
+
+	// stellar.expert/directory
+	dirOutcome := "failed"
+	dirAt := NewCanonicalTime(s.DirectoryAttemptedAt)
+	if s.DirectoryErr == "" {
+		if s.Directory != nil {
+			dirOutcome = "answered"
+		} else {
+			dirOutcome = "not_listed"
+		}
+		if !s.DirectoryFetchedAt.IsZero() {
+			dirAt = NewCanonicalTime(s.DirectoryFetchedAt)
+		}
+	}
+	out = append(out, SourceOutcome{
+		Source:      "stellar.expert/directory",
+		URL:         s.DirectoryURL,
+		Outcome:     dirOutcome,
+		RetrievedAt: dirAt,
+	})
+
+	// stellar.expert/blocked-domains
+	if s.BlockedSkipped != "" {
+		out = append(out, SourceOutcome{
+			Source:  "stellar.expert/blocked-domains",
+			URL:     s.BlockedURL,
+			Outcome: "skipped",
+		})
+	} else {
+		blockedOutcome := "failed"
+		blockedAt := NewCanonicalTime(s.BlockedAttemptedAt)
+		if s.BlockedErr == "" {
+			if s.Blocked != nil {
+				blockedOutcome = "answered"
+			} else {
+				blockedOutcome = "not_listed"
+			}
+			if !s.BlockedFetchedAt.IsZero() {
+				blockedAt = NewCanonicalTime(s.BlockedFetchedAt)
+			}
+		}
+		out = append(out, SourceOutcome{
+			Source:      "stellar.expert/blocked-domains",
+			URL:         s.BlockedURL,
+			Outcome:     blockedOutcome,
+			RetrievedAt: blockedAt,
+		})
+	}
+
+	// stellar.expert/asset (best-effort, omitted entirely when not attempted)
+	if s.ExpertAssetURL != "" {
+		expertOutcome := "failed"
+		expertAt := NewCanonicalTime(s.ExpertAssetAttemptedAt)
+		if s.ExpertAssetErr == "" && s.ExpertAsset != nil {
+			expertOutcome = "answered"
+			if !s.ExpertAssetFetchedAt.IsZero() {
+				expertAt = NewCanonicalTime(s.ExpertAssetFetchedAt)
+			}
+		}
+		out = append(out, SourceOutcome{
+			Source:      "stellar.expert/asset",
+			URL:         s.ExpertAssetURL,
+			Outcome:     expertOutcome,
+			RetrievedAt: expertAt,
+		})
+	}
+
+	// SEP-0042 asset lists — one entry per configured list
+	for _, al := range s.AssetLists {
+		listOutcome := "failed"
+		listAt := NewCanonicalTime(al.AttemptedAt)
+		if al.Err == "" {
+			if al.Listed {
+				listOutcome = "answered"
+			} else {
+				listOutcome = "not_listed"
+			}
+			if !al.FetchedAt.IsZero() {
+				listAt = NewCanonicalTime(al.FetchedAt)
+			}
+		}
+		source := "asset-list"
+		if al.Name != "" {
+			source = "asset-list/" + al.Name
+		}
+		out = append(out, SourceOutcome{
+			Source:      source,
+			URL:         al.URL,
+			Outcome:     listOutcome,
+			RetrievedAt: listAt,
+		})
+	}
+
+	return out
 }

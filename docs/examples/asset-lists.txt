@@ -1,0 +1,36 @@
+# SEP-0042 asset list URLs for use with -asset-lists
+#
+# Verified live: 2026-11-21
+# Format: SEP-0042 Stellar Asset List (SAL), https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0042.md
+#
+# No list is configured by default.  Add one or more of these with -asset-lists
+# when running a scan.  Each list is fetched once per scan and attributed
+# separately in the report — an outage on one never silences another.
+#
+# Usage (single list):
+#   assay scan -asset-lists https://api.stellar.expert/explorer/public/asset-list/top50 USDC-GA5Z...
+#
+# Usage (multiple lists):
+#   assay scan \
+#     -asset-lists https://api.stellar.expert/explorer/public/asset-list/top50 \
+#     -asset-lists https://lobstr.co/api/v1/sep/assets/curated.json \
+#     USDC-GA5Z...
+#
+# Comma-separated form also accepted:
+#   assay scan -asset-lists https://api.stellar.expert/explorer/public/asset-list/top50,https://lobstr.co/api/v1/sep/assets/curated.json USDC-GA5Z...
+
+# StellarExpert Top 50 (pubnet)
+# Named in SEP-0042 as a reference implementation of the format.
+# Provider: StellarExpert; MIT-licensed API; no authentication required.
+# Note: "Assets included in this list were not verified by StellarExpert team."
+https://api.stellar.expert/explorer/public/asset-list/top50
+
+# LOBSTR curated list (pubnet)
+# Named in SEP-0042 as a reference implementation of the format.
+# Note: some entries omit the org field; contract addresses are hex not StrKey.
+https://lobstr.co/api/v1/sep/assets/curated.json
+
+# Community-maintained index of published lists (read-only reference):
+#   https://github.com/stellar-asset-lists/index
+#   Web UI: https://stellar.expert/asset-lists
+# SEP-1 publishers may also advertise their own lists under ASSET_LISTS = [...].
