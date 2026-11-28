@@ -23,6 +23,7 @@ func TestDocsAPIEndpointCoverage(t *testing.T) {
 	// registered by the server that is missing here fails with instructions
 	// rather than being silently tolerated.
 	headings := map[string]string{
+		"GET /api/v1/meta":        "### `GET /api/v1/meta",
 		"GET /api/v1/scan":        "### `GET /api/v1/scan",
 		"GET /api/v1/history":     "### `GET /api/v1/history",
 		"GET /api/v1/events":      "### `GET /api/v1/events",

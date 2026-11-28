@@ -722,6 +722,10 @@ After `accept_admin` succeeds, `new_admin` becomes the sole authorized attester 
 ## What this deployment is not
 
 - **Not mainnet, and not a candidate for it.** The list below is why.
+- **Not a hosted HTTP service.** The project does not run a public
+  `assay serve` instance; run it locally or from the container image
+  ([serving.md](serving.md)). The decision and its prerequisites are in
+  [public-instance.md](public-instance.md).
 - **One key can write anything.** The admin is a single ed25519 account whose
   seed lives on one machine. Anyone holding it can attest any severity for any
   asset. Custody, backup, loss and compromise response, and why rotation

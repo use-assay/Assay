@@ -363,7 +363,7 @@ handshake rotation is for healthy keys, not for active compromise.
 | Testnet resets | Testnet is periodically reset and removes all state. Recorded in [deployment.md](deployment.md) |
 | MEV, front-running, or order flow around a gated action | The gate answers "is this asset safe to hold"; it says nothing about the terms of the trade that follows |
 | Reputation data accuracy | Consumed and attributed, not curated. Report it upstream |
-| Denial of service against Assay's own HTTP API | Pre-1.0 and not deployed as a service. Missing timeouts or unbounded reads in the fetch layer *are* in scope ([SECURITY.md](../SECURITY.md)) |
+| Denial of service against Assay's own HTTP API | Pre-1.0 and not deployed as a service; [public-instance.md](public-instance.md) records the decision not to host one. Missing timeouts or unbounded reads in the fetch layer *are* in scope ([SECURITY.md](../SECURITY.md)). Hosting a public instance would move API DoS in scope |
 
 ## Trust assumptions a reader should check
 

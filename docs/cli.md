@@ -28,6 +28,8 @@ usage:
   assay checks                    print every check's ID and description
   assay serve [-addr] [-history PATH] [-history-retention N] [-observe FILE] [-observe-interval DURATION]
                                   serve the HTTP API and UI
+  assay healthcheck [-url URL]
+                                  probe a running server's /healthz endpoint
   assay version                   print scanner identity, preimage encodings
                                   and build (VCS, Go) information
 
@@ -433,6 +435,25 @@ giving the number of seconds to wait.
 Behind a reverse proxy or load balancer, configure `-trusted-proxies CIDR[,CIDR...]`
 so rate limiters key on the real client IP from `X-Forwarded-For` rather than
 the proxy peer. Untrusted peers cannot spoof their bucket via headers. See [api.md](api.md).
+
+The container image runs this command as a non-root user with a `/data` history
+volume and a built-in healthcheck. See [serving.md](serving.md).
+
+## assay healthcheck
+
+Probes a running server's liveness endpoint. It exists for the container
+image's `HEALTHCHECK`, which cannot use a shell or curl because the runtime is
+`scratch`.
+
+```
+./assay healthcheck
+./assay healthcheck -url http://127.0.0.1:9090/healthz -timeout 2s
+```
+
+It succeeds only on `200` with the body `ok`; any other status, body, or
+connection failure is an error. The default URL is
+`http://127.0.0.1:8080/healthz`, the address `assay serve` listens on by
+default.
 
 ## assay version
 

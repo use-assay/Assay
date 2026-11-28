@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/use-assay/assay/internal/api"
+	"github.com/use-assay/assay/internal/mechanics"
 )
 
 func newTestServer() http.Handler {
@@ -100,6 +101,52 @@ func TestHealthz(t *testing.T) {
 	newTestServer().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+}
+
+// TestMetaReportsSchemaVersion is the server half of the UI/API agreement:
+// the page checks this value before it renders anything.
+func TestMetaReportsSchemaVersion(t *testing.T) {
+	rec := httptest.NewRecorder()
+	newTestServer().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/meta", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var body struct {
+		SchemaVersion int    `json:"schema_version"`
+		RouteVersion  string `json:"route_version"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.SchemaVersion != mechanics.ReportSchemaVersion {
+		t.Errorf("schema_version = %d, want %d", body.SchemaVersion, mechanics.ReportSchemaVersion)
+	}
+	if body.RouteVersion != "v1" {
+		t.Errorf("route_version = %q, want v1", body.RouteVersion)
+	}
+}
+
+// TestDynamicResponsesAreNotStored pins the caching policy on every surface
+// that can carry a verdict or operational state. The UI may be stored but must
+// be revalidated, so an old page cannot silently pair with a newer API.
+func TestDynamicResponsesAreNotStored(t *testing.T) {
+	h := newTestServer()
+	for _, tc := range []struct{ path, want string }{
+		{"/api/v1/meta", "no-store"},
+		{"/api/v1/scan", "no-store"},
+		{"/api/v1/history?asset=USDC-GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", "no-store"},
+		{"/metrics", "no-store"},
+		{"/healthz", "no-store"},
+		{"/", "no-cache"},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tc.path, nil))
+			if got := rec.Header().Get("Cache-Control"); got != tc.want {
+				t.Errorf("Cache-Control = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 

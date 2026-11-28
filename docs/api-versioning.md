@@ -58,6 +58,26 @@ field, or a new member of an ordered enum, is not: the first is invisible to a
 consumer that ignores it, the second changes how a consumer must read a value it
 already depends on.
 
+## The UI pins both versions
+
+The embedded UI is served by the same binary as the API, but a browser or an
+intermediary can hold an older page. A page that renders a newer report with
+old field assumptions would misread it quietly, which is the failure this
+policy exists to prevent.
+
+So the page states the report schema it implements
+(`EXPECTED_SCHEMA_VERSION`, pinned to `mechanics.ReportSchemaVersion` by
+`internal/api/ui_test.go`) and asks the server what it speaks before rendering:
+
+- `GET /api/v1/meta` returns `{"schema_version": N, "route_version": "v1"}`.
+- On load, a mismatch shows a reload prompt and disables the form.
+- Every scan response is checked against the same constant before it is
+  rendered, so an old server paired with a new page fails loudly too.
+
+The endpoint is additive: an older page that never calls it keeps working, and
+a client that ignores it loses only the early warning. The per-response check
+is the backstop.
+
 ## Absent is not an error
 
 A field missing from a response is absent, not `null` and not an error. A

@@ -336,6 +336,63 @@ jobs:
           tar -xzf "$RUNNER_TEMP/$tarball" -C "$RUNNER_TEMP" actionlint
           "$RUNNER_TEMP/actionlint" -color -shellcheck= -pyflakes=
 
+  # A container is the usual way someone evaluates a service. This job proves
+  # the image builds from a clean checkout, runs as non-root, answers /healthz,
+  # and serves a fixture-free API endpoint without a Go toolchain on the host.
+  container:
+    name: Container image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: build the image
+        run: docker build --pull -t assay:ci .
+
+      - name: assert the image runs as non-root
+        run: |
+          user="$(docker inspect --format '{{.Config.User}}' assay:ci)"
+          if [ "$user" != "65532:65532" ]; then
+            echo "::error::image user is '${user}', want 65532:65532"
+            exit 1
+          fi
+
+      - name: smoke check
+        run: |
+          set -eu
+          docker run -d --name assay-ci -p 18080:8080 assay:ci
+          cleanup() { docker logs assay-ci || true; docker rm -f assay-ci || true; }
+          trap cleanup EXIT
+
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18080/healthz >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+          body="$(curl -fsS http://127.0.0.1:18080/healthz)"
+          if [ "$body" != "ok" ]; then
+            echo "::error::/healthz body is '${body}', want 'ok'"
+            exit 1
+          fi
+
+          # Fixture-free: history reads only the local store, so this answers
+          # without Horizon, StellarExpert, or any scan fixture.
+          history="$(curl -fsS 'http://127.0.0.1:18080/api/v1/history?asset=USDC-GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN')"
+          if ! printf '%s' "$history" | grep -q '"state": "missing"'; then
+            echo "::error::/api/v1/history did not return the empty-history state"
+            printf '%s\n' "$history"
+            exit 1
+          fi
+
+          # The version endpoint the embedded UI checks before rendering.
+          meta="$(curl -fsS http://127.0.0.1:18080/api/v1/meta)"
+          if ! printf '%s' "$meta" | grep -q '"schema_version": 1'; then
+            echo "::error::/api/v1/meta did not report the expected schema version"
+            printf '%s\n' "$meta"
+            exit 1
+          fi
+
   contract:
     name: Soroban contract
     runs-on: ubuntu-latest

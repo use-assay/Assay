@@ -129,6 +129,13 @@ matching section — see [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## CLI and HTTP API
 
+- **2026-11-20 — container image, version metadata, cache headers.** The
+  repository gains a static, non-root container image with a built-in
+  `/healthz` probe and a `/data` history volume; `GET /api/v1/meta` reports the
+  report schema and route version the embedded UI checks before rendering;
+  dynamic responses are `Cache-Control: no-store` and a scan carries
+  `X-Assay-Oldest-Evidence-Age`; `assay healthcheck` probes a running server
+  ([#430](https://github.com/use-assay/Assay/issues/430)–[#433](https://github.com/use-assay/Assay/issues/433)).
 - **2026-11-23 — the SAC admin is reported as evidence; mutability reads
   signers.** A scan now reads the asset's Stellar Asset Contract admin over
   Soroban RPC (`ASSAY_SAC_ADMIN_RPC_URL`; testnet has a default, pubnet does

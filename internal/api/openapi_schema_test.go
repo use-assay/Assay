@@ -50,6 +50,8 @@ func TestOpenAPISchemasMatchHandlerEmittedFields(t *testing.T) {
 		{"UpstreamStatus", reflect.TypeOf(UpstreamStatus{})},
 		// The metrics counters.
 		{"Metrics", reflect.TypeOf(metricsBody{})},
+		// The version metadata the embedded UI checks before rendering.
+		{"Meta", reflect.TypeOf(Meta{})},
 	} {
 		t.Run(tc.schema, func(t *testing.T) {
 			documented := schemaProperties(t, doc, tc.schema)

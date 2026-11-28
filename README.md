@@ -21,6 +21,11 @@ worked example contract that is also deployed on testnet
 [docs/deployment.md](docs/deployment.md) has the transaction hashes, the
 attested assets, and the live fail-closed checks.
 
+There is **no hosted `assay serve` instance**. Run it locally or from the
+container image ([docs/serving.md](docs/serving.md)); the decision and its
+prerequisites are recorded in
+[docs/public-instance.md](docs/public-instance.md).
+
 ## Why this exists
 
 Stellar already has a reputation layer, and Assay does not rebuild it.
@@ -133,8 +138,11 @@ Run the scanner and the registry.
 | Document | What's in it |
 | --- | --- |
 | [docs/deployment.md](docs/deployment.md) | Deployed addresses, attested assets, transaction hashes |
+| [docs/serving.md](docs/serving.md) | Running `assay serve` from the container image or source: non-root, healthcheck, history volume, caching headers |
+| [docs/public-instance.md](docs/public-instance.md) | Decision: no hosted public instance yet, with costs and prerequisites |
 | [docs/attester-key.md](docs/attester-key.md) | Attester key custody, loss/compromise response, rotation limits |
 | [docs/attester.md](docs/attester.md) | `assay-attester`: the keyless dry-run and the issuer watcher that run ahead of the attestation writer |
+| [docs/reattestation.md](docs/reattestation.md) | Runbook: refreshing the attested corpus before attestations age out of a gate's window |
 | [docs/attestation-correction.md](docs/attestation-correction.md) | Runbook: treating a wrong attestation as an incident and correcting it |
 | [docs/reattestation.md](docs/reattestation.md) | Runbook: refreshing the attested corpus before attestations age out of the gate's window |
 | [docs/source-outage.md](docs/source-outage.md) | Runbook: what to do when a scan reports an upstream source failure |

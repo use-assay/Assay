@@ -24,7 +24,27 @@ answered with `204 No Content`. The UI is served same-origin and does not
 carry these headers.
 
 Exposed response headers: `X-Request-Id`, `X-Assay-Undetermined`,
-`Retry-After`.
+`X-Assay-Oldest-Evidence-Age`, `Retry-After`.
+
+## Caching and freshness
+
+A scan answer is a claim about one instant, so no dynamic response may be
+stored by an intermediary. Every `/api/` path, plus `/metrics`, `/healthz` and
+`/readyz`, carries `Cache-Control: no-store`. The UI at `/` carries
+`Cache-Control: no-cache`: a browser may store it but must revalidate it, so an
+old page cannot silently pair with a newer API.
+
+A successful scan also carries `X-Assay-Oldest-Evidence-Age`, an integer number
+of seconds: the age of the oldest evidence timestamp that contributed to the
+report, falling back to `scanned_at` when the report carries no evidence
+timestamps. It is absent only when neither timestamp is present.
+
+This is **data age, not the RFC 9111 `Age` header**. `Age` describes how long a
+response has been in an HTTP cache; this value describes how old the ledger and
+curated-source facts inside the response are. Using `Age` for the latter would
+make a cache hop and a stale source indistinguishable. Freshness policy remains
+the caller's: the header reports the age, it does not decide whether the answer
+is acceptable. See [freshness.md](freshness.md).
 
 ## Request Identifiers
 
@@ -148,6 +168,22 @@ to be XLM (`XLM-G…`) is an ordinary asset and scans normally.
 
 ## Endpoints
 
+### `GET /api/v1/meta`
+
+Returns the two independent versions this server speaks:
+
+```json
+{
+  "schema_version": 1,
+  "route_version": "v1"
+}
+```
+
+`schema_version` is the `Report` shape ([api-versioning.md](api-versioning.md));
+`route_version` is the `/api/vN` namespace. The embedded UI calls this before
+rendering and refuses to render a report whose `schema_version` it does not
+know, showing a reload prompt instead.
+
 ### `GET /api/v1/scan?asset=CODE-ISSUER`
 
 Scans an asset and returns its capability report. Each successful scan also
@@ -184,6 +220,11 @@ was sent. A contract address is resolved through Stellar RPC, configured with
 
 Response headers:
 
+- `Cache-Control`: `no-store`. A verdict is a claim about one instant and must
+  not be served later as if it were current.
+- `X-Assay-Oldest-Evidence-Age`: the age in seconds of the oldest evidence
+  timestamp behind the report, falling back to `scanned_at`. See
+  [Caching and freshness](#caching-and-freshness).
 - `X-Assay-Undetermined`: set to `true` when the scan is degraded by an
   upstream source outage (such as a failure to reach StellarExpert). When
   `true`, the body contains `undetermined: true` and `undetermined_checks`,
