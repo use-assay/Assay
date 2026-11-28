@@ -10,9 +10,9 @@ import (
 
 const (
 	// UIScriptSHA256 is the base64-encoded SHA-256 digest of the inline <script> block in ui/index.html.
-	UIScriptSHA256 = "t/u1QAh0RyZW0GHBQ7ja/hJJtvH+ItJeysmkglexQFc="
+	UIScriptSHA256 = "1BSWU5J/h6odTJ90nrYr06pDSOEVmnBFIg/s+taNYEU="
 	// UIStyleSHA256 is the base64-encoded SHA-256 digest of the inline <style> block in ui/index.html.
-	UIStyleSHA256 = "l4WeF0XeGKzefI+a7crzmyh7Jg9stQSDngE9QEMmCko="
+	UIStyleSHA256 = "E5YkZ6BhC7entNbzppUafJBU8sM/zaCoYA/NArbc/ZU="
 )
 
 // UICSP is the Content-Security-Policy header served with the embedded UI.
